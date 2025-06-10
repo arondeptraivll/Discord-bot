@@ -1,4 +1,4 @@
-# spammer.py (phiên bản có logic trích xuất UID được phục hồi)
+# spammer.py (phiên bản có logic trích xuất UID được hoàn thiện)
 import requests
 import re
 import random
@@ -17,6 +17,7 @@ class SpamManager:
         if not self.FIREBASE_APP_CHECK_TOKEN: print("CRITICAL: Không thể lấy App Check Token.")
         self.active_spam_sessions = {}
         self.last_error_message = ""
+        
     def _fetch_app_check_token(self):
         try:
             res = requests.get(self.TOKEN_API_URL, timeout=self.REQUEST_TIMEOUT)
@@ -27,14 +28,12 @@ class SpamManager:
         return validate_license_from_file(key)
 
     # =========================================================================
-    # LOGIC TRÍCH XUẤT UID MỚI - MẠNH MẼ HƠN
+    # LOGIC TRÍCH XUẤT UID MỚI - HOÀN THIỆN
     # =========================================================================
     def _extract_uid_from_url(self, url: str) -> Optional[str]:
-        """Trích xuất UID từ một URL Locket camera đầy đủ."""
         if not url: return None
         match = re.search(r'locket\.camera/invites/([a-zA-Z0-9]{28})', url)
-        if match:
-            return match.group(1)
+        if match: return match.group(1)
         self.last_error_message = f"URL cuối cùng không chứa UID hợp lệ."
         return None
 
@@ -43,37 +42,35 @@ class SpamManager:
         Tìm Locket UID từ bất kỳ đầu vào nào (username, link rút gọn, link dài).
         """
         user_input = user_input.strip()
-        self.last_error_message = "" # Reset lỗi
+        self.last_error_message = "" 
         
-        # 1. Nếu đã là link đầy đủ, trích xuất ngay
-        if 'locket.camera/invites/' in user_input:
-            return self._extract_uid_from_url(user_input)
-
-        # 2. Xây dựng URL để kiểm tra (cho username hoặc link rút gọn)
         url_to_check = f"https://locket.cam/{user_input}" if not re.match(r'^https?://', user_input) else user_input
         
         try:
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"}
-            response = requests.get(url_to_check, timeout=self.REQUEST_TIMEOUT)
-            response.raise_for_status() # Báo lỗi nếu gặp 404, 500, etc.
+            # allow_redirects=True sẽ tự động theo các HTTP 302 redirect
+            response = requests.get(url_to_check, headers=headers, timeout=self.REQUEST_TIMEOUT, allow_redirects=True)
+            response.raise_for_status()
 
-            # 3. Thử tìm URL trong JavaScript trước (dành cho locket.cam)
+            # Bước 1: Ưu tiên kiểm tra URL cuối cùng sau khi đã chuyển hướng HTTP
+            # Điều này sẽ xử lý các link như /links/ và /invites/ trực tiếp.
+            uid = self._extract_uid_from_url(response.url)
+            if uid:
+                return uid
+
+            # Bước 2: Nếu không được, thử tìm trong JS (dành cho link locket.cam/username)
             js_redirect_match = re.search(r'window\.location\.href\s*=\s*"([^"]+)"', response.text)
             if js_redirect_match:
                 redirected_url = js_redirect_match.group(1)
-                return self._extract_uid_from_url(redirected_url)
-
-            # 4. Nếu không có JS redirect, thử lấy URL cuối cùng sau khi chuyển hướng http
-            final_url = response.url
-            uid = self._extract_uid_from_url(final_url)
-            if uid:
-                return uid
+                uid_from_js = self._extract_uid_from_url(redirected_url)
+                if uid_from_js:
+                    return uid_from_js
 
             self.last_error_message = "Không thể tìm thấy link chuyển hướng trong trang."
             return None
 
         except requests.RequestException as e:
-            self.last_error_message = f"Lỗi kết nối mạng khi phân tích link: {e}"
+            self.last_error_message = f"Lỗi kết nối mạng: {e}"
             return None
     # =========================================================================
 
@@ -84,21 +81,18 @@ class SpamManager:
             if self.last_error_message: error_msg += f"\nLý do: {self.last_error_message}"
             update_callback(status="error", message=error_msg)
             return
-        
+        # ... Các logic khác giữ nguyên ...
         if user_id in self.active_spam_sessions: update_callback(status="error", message="Bạn đã có một phiên spam đang chạy."); return
         stop_event = threading.Event(); self.active_spam_sessions[user_id] = stop_event
         stats = {'success': 0, 'failed': 0, 'start_time': time.time()}
         
         def spam_loop():
-            # ... Logic vòng lặp spam giữ nguyên
             last_update = time.time()
             while not stop_event.is_set():
                 threads = [threading.Thread(target=self._run_single_spam_thread, args=(target_uid, stop_event, stats)) for _ in range(25)]
                 for t in threads: t.start()
                 for t in threads: t.join()
-                if time.time() - last_update > 5:
-                    update_callback(status="running", stats=stats)
-                    last_update = time.time()
+                if time.time() - last_update > 5: update_callback(status="running", stats=stats); last_update = time.time()
             update_callback(status="stopped", stats=stats)
             if user_id in self.active_spam_sessions: del self.active_spam_sessions[user_id]
             
