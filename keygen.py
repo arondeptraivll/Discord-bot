@@ -9,11 +9,14 @@ KEY_PREFIX = 'ZLK'
 _lock = Lock()
 
 def load_keys() -> dict:
-    """Tải dữ liệu keys từ file JSON một cách an toàn."""
+    """Tải và sắp xếp dữ liệu keys theo ngày hết hạn (mới nhất lên đầu)."""
     with _lock:
         try:
             with open(KEY_FILE, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+                # Sắp xếp các items dựa trên 'expires_at'
+                sorted_items = sorted(data.items(), key=lambda item: item[1]['expires_at'], reverse=True)
+                return dict(sorted_items)
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
 
@@ -46,7 +49,7 @@ def add_key(duration_days: int, created_for_user_id: int, creator_id: int) -> di
         "duration_days": duration_days,
         "is_active": True,
         "created_by": str(creator_id),
-        "user_id": str(created_for_user_id), # Người dùng được phép sử dụng key này
+        "user_id": str(created_for_user_id),
     }
     
     keys_data[new_key_str] = key_info
@@ -67,6 +70,18 @@ def validate_key(key: str) -> dict:
 
     expiry_dt = datetime.datetime.fromisoformat(key_info["expires_at"])
     if expiry_dt < datetime.datetime.now(datetime.timezone.utc):
+        # Tự động vô hiệu hóa key hết hạn
+        key_info['is_active'] = False
+        save_keys(keys_data)
         return {"valid": False, "code": "EXPIRED"}
 
-    return {"valid": True, "code": "VALID", "expiry": key_info["expires_at"]}
+    return {"valid": True, "code": "VALID", "key_info": key_info}
+
+def delete_key(key_to_delete: str) -> bool:
+    """Vô hiệu hóa một key bằng cách đặt is_active = False."""
+    keys_data = load_keys()
+    if key_to_delete in keys_data:
+        keys_data[key_to_delete]['is_active'] = False
+        save_keys(keys_data)
+        return True # Xóa thành công
+    return False # Key không tồn tại
