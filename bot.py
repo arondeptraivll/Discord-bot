@@ -219,7 +219,7 @@ client_instance = MyBotClient(intents=intents)
 async def start(interaction: discord.Interaction):
     if interaction.channel.id != SPAM_CHANNEL_ID: return await interaction.response.send_message(f"Lệnh chỉ dùng được trong <#{SPAM_CHANNEL_ID}>.", ephemeral=True)
     await interaction.response.defer(ephemeral=True)
-    embed = discord.Embed(title="🌟 ZLocket Spammer Bot - Prestige Edition 🌟", description="Chào mừng bạn! Vui lòng nhập License Key để tiếp tục.", color=discord.Color.blurple())
+    embed = discord.Embed(title="🌟 GemLogin Spam Locket Tool 🌟", description="Chào mừng bạn! Vui lòng nhập License Key để tiếp tục.", color=discord.Color.blurple())
     embed.add_field(name="Cách có Key?", value=f"Liên hệ Admin <@{ADMIN_USER_ID}> để được cấp.", inline=False)
     message = await interaction.followup.send(embed=embed, ephemeral=True, wait=True)
     await message.edit(view=InitialView(original_message=message))
