@@ -4,6 +4,7 @@ from discord import app_commands, ui
 import os
 import datetime
 import time
+import asyncio
 from typing import Optional
 
 print("--- [LAUNCH] Botกำลัง khởi chạy, phiên bản ổn định... ---")
