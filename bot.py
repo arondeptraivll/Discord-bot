@@ -22,7 +22,7 @@ KEYGEN_ACCOUNT_ID = os.environ.get('KEYGEN_ACCOUNT_ID')
 KEYGEN_PRODUCT_TOKEN = os.environ.get('KEYGEN_PRODUCT_TOKEN')
 
 # ID của kênh mà bot sẽ hoạt động - !!! THAY THẾ ID KÊNH CỦA BẠN VÀO ĐÂY !!!
-SPAM_CHANNEL_ID = 123456789012345678 
+SPAM_CHANNEL_ID = 1381799563488399452 
 
 # --- Logging cấu hình ---
 print("--- [DEBUG] Đang tải các biến cấu hình... ---")
