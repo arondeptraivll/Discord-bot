@@ -7,11 +7,14 @@ import string
 import threading
 import time
 from typing import Optional, Callable
+import json
 
 class SpamManager:
     def __init__(self, account_id: str, product_token: str):
         self.ACCOUNT_ID = account_id
-        self.PRODUCT_TOKEN = product_token
+        # **QUAN TRỌNG**: Product token không được dùng trong validate-key, nó sẽ được dùng trong các tác vụ khác.
+        # Hàm validate-key không cần đến nó.
+        self.PRODUCT_TOKEN = product_token 
         self.TOKEN_API_URL = "https://thanhdieu.com/api/v1/locket/token"
         self.API_LOCKET_URL = "https://api.locketcamera.com"
         self.REQUEST_TIMEOUT = 15
@@ -23,7 +26,7 @@ class SpamManager:
         self.active_spam_sessions = {}
 
     def _fetch_app_check_token(self):
-        """Tự động lấy App Check Token từ API của thanhdieu.com"""
+        """Tự động lấy App Check Token từ API."""
         try:
             print("Đang lấy Locket App Check Token...")
             res = requests.get(self.TOKEN_API_URL, timeout=self.REQUEST_TIMEOUT)
@@ -40,29 +43,54 @@ class SpamManager:
             return None
 
     def validate_license(self, key: str) -> dict:
-        """Gửi yêu cầu đến Keygen.sh để xác thực license key."""
+        """
+        Gửi yêu cầu đến Keygen.sh để xác thực một license key.
+        PHIÊN BẢN NÀY CÓ LOG CHI TIẾT.
+        """
+        print("\n\n--- [VALIDATION_DEBUG] BẮT ĐẦU QUÁ TRÌNH XÁC THỰC LICENSE ---")
+        
+        license_key_to_validate = key.strip()
+        print(f"--- [VALIDATION_DEBUG] Key nhận được từ người dùng (đã xóa khoảng trắng): '{license_key_to_validate}'")
+
         headers = {
             'Content-Type': 'application/vnd.api+json',
             'Accept': 'application/vnd.api+json'
         }
-        payload = {'meta': {'key': key.strip()}}
+        payload = {'meta': {'key': license_key_to_validate}}
         url = f'https://api.keygen.sh/v1/accounts/{self.ACCOUNT_ID}/licenses/actions/validate-key'
         
+        print(f"--- [VALIDATION_DEBUG] Account ID đang sử dụng: {self.ACCOUNT_ID}")
+        print(f"--- [VALIDATION_DEBUG] URL đích sẽ gửi request: {url}")
+        print(f"--- [VALIDATION_DEBUG] Payload (dữ liệu) sẽ gửi đi: {json.dumps(payload)}")
+        print("--- [VALIDATION_DEBUG] Đang gửi request đến Keygen.sh...")
+
         try:
             res = requests.post(url, headers=headers, json=payload, timeout=self.REQUEST_TIMEOUT)
+            
+            print("--- [VALIDATION_DEBUG] ĐÃ NHẬN ĐƯỢC PHẢN HỒI TỪ KEYGEN.SH ---")
+            print(f"--- [VALIDATION_DEBUG] Status Code: {res.status_code}")
+            print(f"--- [VALIDATION_DEBUG] Raw Response Body (nội dung thô): {res.text}")
+            
             data = res.json()
 
             if "errors" in data:
+                print("--- [VALIDATION_DEBUG] Phân tích: Phát hiện có 'errors' trong response. Validation thất bại.")
                 code = data["errors"][0].get("code")
                 return {"valid": False, "code": code}
             
             if data.get("meta", {}).get("valid", False):
+                print("--- [VALIDATION_DEBUG] Phân tích: Phát hiện 'valid: true' trong response. Validation thành công!")
                 expiry = data.get("data", {}).get("attributes", {}).get("expiry")
                 return {"valid": True, "code": "VALID", "expiry": expiry}
             else:
+                print("--- [VALIDATION_DEBUG] Phân tích: Không có 'errors' nhưng 'valid' không phải true. Validation thất bại.")
                 return {"valid": False, "code": "NOT_FOUND"}
-        except requests.RequestException:
+
+        except requests.RequestException as e:
+            print(f"--- [VALIDATION_DEBUG] Phân tích: Đã xảy ra lỗi ngoại lệ trong lúc gửi request: {e}")
             return {"valid": False, "code": "REQUEST_ERROR"}
+        finally:
+            print("--- [VALIDATION_DEBUG] KẾT THÚC QUÁ TRÌNH XÁC THỰC ---\n\n")
 
     def _extract_uid_locket(self, url: str) -> Optional[str]:
         """Trích xuất UID từ URL Locket."""
@@ -88,19 +116,15 @@ class SpamManager:
             email = f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=15))}@thanhdieu.com"
             password = 'zlocket' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=7))
             
-            # Mô phỏng quá trình tạo tài khoản và gửi lời mời kết bạn như trong file gốc
             create_payload = {"data": {"email": email, "password": password, "client_email_verif": True, "platform": "ios"}}
             create_res = requests.post(f"{self.API_LOCKET_URL}/createAccountWithEmailPassword", headers=headers, json=create_payload, timeout=self.REQUEST_TIMEOUT)
             
             if stop_event.is_set(): return
             
             if create_res.status_code == 200:
-                 # Logic này phức tạp và cần reverse-engineer để lấy idToken, 
-                 # hiện tại chúng ta mô phỏng rằng nó sẽ thành công nếu tài khoản được tạo.
                 stats['success'] += 1
             else:
                 stats['failed'] += 1
-
         except requests.RequestException:
             if not stop_event.is_set():
                 stats['failed'] += 1
@@ -132,12 +156,10 @@ class SpamManager:
                 
                 for t in threads: t.join()
 
-                # Gửi cập nhật mỗi 5 giây
                 if time.time() - last_update_time > 5:
                     update_callback(status="running", stats=stats)
                     last_update_time = time.time()
 
-            # Gửi thông báo cuối cùng
             update_callback(status="stopped", stats=stats)
             if user_id in self.active_spam_sessions: del self.active_spam_sessions[user_id]
 
