@@ -1,4 +1,4 @@
-# bot.py (Phiên bản 4.4.0 - Gunicorn Compatibility Fix)
+# bot.py (Phiên bản 4.4.1 - Final Import Fix)
 import discord
 from discord import app_commands, ui
 import os
@@ -9,7 +9,11 @@ from typing import Optional, Callable
 from threading import Thread
 from flask import Flask
 
-print("--- [LAUNCH] Bot đang khởi chạy, phiên bản 4.4.0 (Gunicorn Fix)... ---")
+# === NEW === THÊM LẠI CÁC IMPORT BỊ THIẾU
+from spammer import SpamManager
+import keygen
+
+print("--- [LAUNCH] Bot đang khởi chạy, phiên bản 4.4.1 (Final Import Fix)... ---")
 
 # ==============================================================================
 # 1. CÀI ĐẶT
@@ -29,6 +33,7 @@ SPAM_CHANNEL_ID = int(os.environ.get('SPAM_CHANNEL_ID', 1381799563488399452))
 if not DISCORD_TOKEN or not ADMIN_USER_ID:
     print("!!! [CRITICAL] Thiếu DISCORD_TOKEN hoặc ADMIN_USER_ID.")
 
+# Dòng này bây giờ sẽ hoạt động vì đã import SpamManager
 spam_manager = SpamManager()
 intents = discord.Intents.default()
 
@@ -57,6 +62,7 @@ class KeyEntryModal(ui.Modal, title='Nhập License Key'):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
         key_value = self.key_input.value
+        # Dòng này bây giờ sẽ hoạt động vì đã import keygen
         result = spam_manager.validate_license(key_value)
         if result.get("valid"):
             key_info = result['key_info']
@@ -81,7 +87,10 @@ class SpamConfigModal(ui.Modal, title='Cấu hình Spam'):
         def update_callback(status: str, stats: Optional[dict]=None, message: Optional[str]=None):
             asyncio.run_coroutine_threadsafe(active_view.update_message(status, stats, message), client.loop)
         spam_manager.start_spam_session(self.user_id, self.target_input.value, update_callback)
-        await self.control_message.delete()
+        try:
+            await self.control_message.delete()
+        except discord.NotFound:
+            pass # Tin nhắn có thể đã bị xóa hoặc hết hạn
 
 class InitialView(ui.View):
     def __init__(self, original_message: Optional[discord.WebhookMessage]=None):
@@ -125,20 +134,22 @@ class ActiveSpamView(ui.View):
         self.key, self.original_interaction, self.status_message = key, original_interaction, None
         
     async def update_message(self, status: str, stats: Optional[dict]=None, message: Optional[str]=None):
-        if status == "started": 
-            return await asyncio.sleep(0) # self.status_message = await self.original_interaction.followup.send(message, view=self, ephemeral=True)
+        # logic for 'started' is now handled inside 'running' for the first time
         if status == "error":
             await self.original_interaction.followup.send(f"❌ **Lỗi Khởi Động:** {message}", ephemeral=True)
             self.stop()
             return
-        #if not self.status_message: return
+            
         embed = discord.Embed()
         try:
             if status == "running":
                 embed.title, embed.color = "🚀 Trạng thái Spam: Đang Chạy", discord.Color.blue()
                 embed.add_field(name="Thành Công", value=f"✅ {stats['success']}", inline=True).add_field(name="Thất Bại", value=f"❌ {stats['failed']}", inline=True).add_field(name="Thời Gian", value=f"⏳ {datetime.timedelta(seconds=int(time.time() - stats['start_time']))}", inline=True)
-                if not self.status_message: self.status_message = await self.original_interaction.followup.send(embed=embed, view=self, ephemeral=True)
-                else: await self.status_message.edit(embed=embed)
+                # If message doesn't exist, create it. Otherwise, edit it.
+                if not self.status_message: 
+                    self.status_message = await self.original_interaction.followup.send(embed=embed, view=self, ephemeral=True, wait=True)
+                else: 
+                    await self.status_message.edit(embed=embed)
             elif status == "stopped":
                 self.stop()
                 embed.title, embed.color = "🛑 Phiên Spam Đã Dừng", discord.Color.dark_grey()
@@ -171,7 +182,6 @@ class MyBotClient(discord.Client):
 
 client = MyBotClient(intents=intents)
 
-# (Tất cả các lệnh slash giữ nguyên)
 @client.tree.command(name="start", description="Bắt đầu một phiên làm việc mới.")
 async def start(interaction: discord.Interaction):
     if interaction.channel.id != SPAM_CHANNEL_ID: return await interaction.response.send_message(f"Lệnh chỉ dùng được trong <#{SPAM_CHANNEL_ID}>.", ephemeral=True)
