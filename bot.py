@@ -1,4 +1,4 @@
-# bot.py (phiên bản 4.4 - Giao diện điều khiển nâng cao)
+# bot.py (Phiên bản 4.5 - Hoàn thiện Async/Await)
 import discord
 from discord import app_commands, ui
 import os
@@ -7,7 +7,7 @@ import time
 import asyncio
 from typing import Optional
 
-print("--- [LAUNCH] Bot đang khởi chạy, phiên bản 4.4 (Điều khiển nâng cao)... ---")
+print("--- [LAUNCH] Bot đang khởi chạy, phiên bản 4.5 (Hoàn thiện)... ---")
 
 from keep_alive import keep_alive
 from spammer import SpamManager
@@ -55,7 +55,7 @@ class KeyEntryModal(ui.Modal, title='Nhập License Key'):
             errors = {"NOT_FOUND": "Key không tồn tại...", "EXPIRED": "Key đã hết hạn...", "SUSPENDED": "Key đã bị tạm ngưng..."}
             await interaction.followup.send(f"❌ Lỗi: {errors.get(result.get('code'), 'Lỗi không xác định.')}", ephemeral=True)
 
-# === NEW === Thêm Input cho tên và số luồng
+
 class SpamConfigModal(ui.Modal, title='Cấu hình Spam'):
     target_input = ui.TextInput(label='Locket Target (Username/Link)', placeholder='ví dụ: usernamecuaban hoặc link locket...')
     custom_name_input = ui.TextInput(label='Tên Custom cho tài khoản spam', placeholder='(Bỏ trống để dùng tên mặc định)', required=False, max_length=20)
@@ -70,8 +70,7 @@ class SpamConfigModal(ui.Modal, title='Cấu hình Spam'):
         
         try:
             num_threads = int(self.threads_input.value)
-            if not 1 <= num_threads <= 50:
-                raise ValueError
+            if not 1 <= num_threads <= 50: raise ValueError
         except (ValueError, TypeError):
             await interaction.followup.send("❌ Số luồng không hợp lệ. Vui lòng nhập một số từ 1 đến 50.", ephemeral=True)
             return
@@ -80,8 +79,12 @@ class SpamConfigModal(ui.Modal, title='Cấu hình Spam'):
         def update_callback(status, stats=None, message=None):
             asyncio.run_coroutine_threadsafe(active_view.update_message(status, stats, message), client.loop)
         
-        custom_name = self.custom_name_input.value if self.custom_name_input.value else "zLocket Tool Pro"
-        spam_manager.start_spam_session(interaction.user.id, self.target_input.value, custom_name, num_threads, update_callback)
+        custom_name = self.custom_name_input.value or "zLocket Tool Pro"
+        
+        async def run_spam():
+            await spam_manager.start_spam_session(interaction.user.id, self.target_input.value, custom_name, num_threads, update_callback)
+        
+        asyncio.create_task(run_spam())
         await self.control_message.delete()
 
 
@@ -98,6 +101,7 @@ class InitialView(ui.View):
             await self.original_message.edit(embed=embed, view=None)
         except: pass
 
+
 class SpamControlView(ui.View):
     def __init__(self, key: str, control_message: discord.WebhookMessage):
         super().__init__(timeout=600)
@@ -111,7 +115,7 @@ class SpamControlView(ui.View):
             await self.control_message.edit(embed=embed, view=None)
         except: pass
 
-# === NEW === Giao diện trạng thái nâng cao
+
 class ActiveSpamView(ui.View):
     def __init__(self, original_interaction: discord.Interaction):
         super().__init__(timeout=None)
@@ -145,8 +149,8 @@ class ActiveSpamView(ui.View):
                 embed.add_field(name="💌 Tổng Yêu Cầu", value=f"{stats['requests']}", inline=True)
                 embed.add_field(name="❌ Tổng Lỗi", value=f"{stats['failed']}", inline=True)
                 await self.status_message.edit(content="Hoàn tất!", embed=embed, view=None)
-        except discord.errors.NotFound:
-             self.stop() # Tin nhắn đã bị xóa, dừng cập nhật
+        except (discord.errors.NotFound, asyncio.CancelledError):
+             self.stop() 
         except Exception: 
             self.stop()
 
@@ -156,7 +160,6 @@ class ActiveSpamView(ui.View):
             button.disabled = True
             await interaction.response.edit_message(content="*Đang xử lý yêu cầu dừng...*", view=self)
         else: await interaction.response.send_message("Không tìm thấy phiên spam.", ephemeral=True)
-
 
 # CLIENT & COMMANDS
 class MyBotClient(discord.Client):
@@ -178,7 +181,6 @@ async def start(interaction: discord.Interaction):
     msg = await interaction.followup.send(embed=embed, ephemeral=True)
     await msg.edit(view=InitialView(original_message=msg))
 
-# ... Các lệnh admin (genkey, listkeys, delkey) giữ nguyên như cũ ...
 @client.tree.command(name="genkey", description="[Admin] Tạo key.")
 @app_commands.describe(user="Người dùng nhận key.", days="Số ngày hiệu lực.")
 async def genkey(interaction: discord.Interaction, user: discord.User, days: int):
