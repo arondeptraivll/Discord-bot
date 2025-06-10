@@ -10,7 +10,6 @@ import asyncio
 from typing import Optional, Callable
 from keygen import validate_key as validate_license_from_file
 
-# Lớp Spammer không đổi, giữ nguyên từ bản 2.3
 class Spammer:
     def __init__(self, proxy: str, target_uid: str, custom_name: str):
         self.API_LOCKET_URL="https://api.locketcamera.com"; self.FIREBASE_AUTH_URL="https://www.googleapis.com/identitytoolkit/v3/relyingparty"; self.FIREBASE_API_KEY="AIzaSyCQngaaXQIfJaH0aS2l7REgIjD7nL431So"; self.REQUEST_TIMEOUT=15
@@ -90,16 +89,15 @@ class SpamManager:
             html_content=response.text
             if html_match:=re.search(r'(https?://locket\.camera/invites/[a-zA-Z0-9]{28})',html_content):return re.search(r'([a-zA-Z0-9]{28})',html_match.group(1)).group(1)
         except:return None
+        return None
     def validate_license(self,key:str):return validate_license_from_file(key)
     
-    # === CHANGED === start_spam_session giờ là một coroutine
     async def start_spam_session(self, user_id: int, target: str, custom_name: str, num_threads: int, update_callback: Callable):
         if user_id in self.active_spam_sessions:
             return update_callback(status="error", message="Bạn đã có một phiên spam đang chạy.")
         
         loop = asyncio.get_running_loop()
 
-        # === NEW === Chạy các tác vụ blocking trong executor để không chặn event loop
         if not await loop.run_in_executor(None, self._ensure_dependencies):
             return update_callback(status="error", message="Không thể khởi động: Thiếu token hoặc proxy.")
 
@@ -107,16 +105,17 @@ class SpamManager:
         if not target_uid:
             return update_callback(status="error", message=f"Không thể tìm thấy Locket UID từ `{target}`.")
 
-        # Phần logic luồng vẫn giữ nguyên
         stop_event=threading.Event()
         self.active_spam_sessions[user_id]=stop_event
         proxies_count=self.proxy_queue.qsize()
         actual_threads=min(num_threads,proxies_count)
         stats={'accounts':0,'requests':0,'failed':0,'start_time':time.time(),'proxies':proxies_count}
+        
         def spam_loop():
             worker_threads=[threading.Thread(target=self._run_worker,args=(target_uid,custom_name,stop_event,stats))for _ in range(actual_threads)]
             for t in worker_threads:t.start()
             if not worker_threads:return update_callback(status="error",message="Không có luồng nào được tạo.")
+            
             last_update_time=time.time()
             while not stop_event.is_set()and any(t.is_alive()for t in worker_threads):
                 if time.time()-last_update_time>2:
@@ -124,16 +123,18 @@ class SpamManager:
                     update_callback(status="running",stats=stats)
                     last_update_time=time.time()
                 time.sleep(0.5)
+                
             for t in worker_threads:t.join()
             update_callback(status="stopped",stats=stats)
             if user_id in self.active_spam_sessions:del self.active_spam_sessions[user_id]
+            
         threading.Thread(target=spam_loop,daemon=True).start()
         update_callback(status="started",message=f"✅ Đã bắt đầu spam đến `{target_uid}` với **{actual_threads}** luồng.")
 
     def _run_worker(self,target_uid,custom_name,stop_event,stats):
         while not stop_event.is_set():
             try:
-                proxy=self.queue.get_nowait()
+                proxy=self.proxy_queue.get_nowait()
                 spammer_instance=Spammer(proxy,target_uid,custom_name)
                 status,sent_count=spammer_instance.run_cycle()
                 with threading.Lock():
