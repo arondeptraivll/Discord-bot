@@ -18,7 +18,7 @@ import keygen
 # ==============================================================================
 DISCORD_TOKEN = os.environ.get('DISCORD_TOKEN')
 ADMIN_USER_ID = os.environ.get('ADMIN_USER_ID') # THIẾT LẬP TRÊN RENDER
-SPAM_CHANNEL_ID = 123456789012345678  # !!! THAY BẰNG ID KÊNH CỦA BẠN !!!
+SPAM_CHANNEL_ID = 1381799563488399452  # !!! THAY BẰNG ID KÊNH CỦA BẠN !!!
 if not DISCORD_TOKEN or not ADMIN_USER_ID: exit("!!! LỖI: Thiếu biến môi trường quan trọng.")
 
 spam_manager = SpamManager()
