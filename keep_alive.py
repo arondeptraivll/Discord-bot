@@ -1,4 +1,5 @@
-# keep_alive.py (Simplified for Gunicorn main process)
+# keep_alive.py (Đơn giản hóa)
+
 from flask import Flask
 
 app = Flask('')
