@@ -25,7 +25,8 @@ class BrowserCog(commands.Cog):
         try:
             # Di chuyển việc cấu hình options vào đây để mỗi luồng có 1 instance riêng
             chrome_options = webdriver.ChromeOptions()
-            chrome_options.binary_location = "/usr/bin/google-chrome-stable" # <-- DÙNG ĐƯỜNG DẪN ĐẦY ĐỦ VÀ CHẮC CHẮN NHẤT
+            # Dùng đường dẫn chính xác của file thực thi mà Dockerfile mới cài đặt
+            chrome_options.binary_location = "/usr/bin/google-chrome-stable" 
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
@@ -58,7 +59,6 @@ class BrowserCog(commands.Cog):
         await interaction.response.send_message("🚀 Đã nhận lệnh! Bắt đầu xử lý tác vụ trình duyệt...", ephemeral=True)
 
         # Bước 2: Tạo và khởi chạy công việc Selenium trong một luồng riêng
-        # Điều này cho phép bot tiếp tục hoạt động mà không bị chặn
         thread = threading.Thread(target=self.run_selenium_task, args=(interaction,))
         thread.start()
 
