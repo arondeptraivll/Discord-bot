@@ -1,21 +1,18 @@
-
-
-# bot.py (Phiên bản 5.3 - Hỗ trợ Docker & Browser Cog)
+# bot.py (Phiên bản 5.4 - Logic khởi chạy được quản lý bởi main.py)
 import discord
 from discord import app_commands, ui
-from discord.ext import commands # <-- Nâng cấp quan trọng
+from discord.ext import commands
 import os
 import datetime
 import time
 import asyncio
 from typing import Optional, Callable
-from threading import Thread
 from flask import Flask
 
 from spammer import SpamManager
 import keygen
 
-print("--- [LAUNCH] Bot đang khởi chạy, phiên bản 5.3 (Docker & Browser Cog)... ---")
+print("--- [MODULE LOAD] bot.py được nạp như một module... ---")
 
 # ==============================================================================
 # 1. CÀI ĐẶT
@@ -194,6 +191,7 @@ class MyBotClient(commands.Bot):
     async def on_ready(self):
         print(f'--- [READY] Bot đã đăng nhập: {self.user} ---')
 
+# Khởi tạo instance của Bot để file main.py có thể import
 client_instance = MyBotClient(intents=intents)
 
 # Các lệnh gốc của bot vẫn ở đây
@@ -237,26 +235,5 @@ async def delkey(interaction: discord.Interaction, key: str):
     if keygen.delete_key(key): await interaction.followup.send(f"✅ Key `{key}` đã được vô hiệu hóa.", ephemeral=True)
     else: await interaction.followup.send(f"❌ Không tìm thấy key `{key}`.", ephemeral=True)
 
-# ==============================================================================
-# 4. KHỞI CHẠY (LOGIC GIỮ NGUYÊN)
-# ==============================================================================
-def run_bot():
-    if DISCORD_TOKEN:
-        print("--- [BOT] Đang khởi chạy bot Discord trong một luồng riêng...")
-        try:
-            client_instance.run(DISCORD_TOKEN)
-        except Exception as e:
-            print(f"!!! [CRITICAL BOT ERROR] Bot đã dừng với lỗi: {e}")
-
-
-# Phần này đã được xử lý bởi file main.py và Gunicorn, nhưng vẫn để đây cho rõ ràng
-# nếu bạn muốn chạy file này trực tiếp để test.
-# Để tránh khởi chạy 2 lần, chỉ chạy luồng bot nếu file này không phải là entrypoint chính.
-if __name__ != "__main__":
-    bot_thread = Thread(target=run_bot)
-    bot_thread.daemon = True
-    # Không start() ở đây vì Gunicorn sẽ quản lý qua main.py
-else:
-    # Nếu chạy bot.py trực tiếp để debug
-    print("Chạy bot.py trực tiếp để debug...")
-    run_bot()
+# TOÀN BỘ PHẦN KHỞI CHẠY ĐÃ ĐƯỢC GỠ BỎ TỪ ĐÂY.
+# main.py SẼ CHỊU TRÁCH NHIỆM HOÀN TOÀN VIỆC NÀY.
