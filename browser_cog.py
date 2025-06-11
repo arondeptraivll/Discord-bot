@@ -7,6 +7,13 @@ import threading
 
 # Imports cho Selenium
 from selenium import webdriver
+# --- SỬA LỖI 'WebDriverWait' IS NOT DEFINED ---
+# Thêm lại các import cần thiết
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+# -----------------------------------------------
+
 # KHÔNG CẦN import Service hay webdriver_manager nữa
 
 BROWSER_CHANNEL_ID = 1382203422094266390
@@ -35,7 +42,7 @@ class BrowserCog(commands.Cog):
                 
                 button_xpath = "/html/body/div[6]/div/div[6]/button[1]"
                 # Logic còn lại giữ nguyên...
-                wait = WebDriverWait(driver, 10)
+                wait = WebDriverWait(driver, 10) # Dòng này giờ sẽ hoạt động
                 button = wait.until(EC.element_to_be_clickable((By.XPATH, button_xpath)))
                 button.click()
             
