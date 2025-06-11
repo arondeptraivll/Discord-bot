@@ -3,50 +3,48 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import os
-import threading # <-- Thêm thư viện threading
+import threading
 
 # Imports cho Selenium
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
+# KHÔNG CẦN import Service hay webdriver_manager nữa
 
 BROWSER_CHANNEL_ID = 1382203422094266390
 
 class BrowserCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        # Cấu hình options có thể được tạo một lần ở đây
+        self.chrome_options = webdriver.ChromeOptions()
+        # Đường dẫn này phải khớp với những gì Dockerfile cài đặt
+        self.chrome_options.binary_location = "/usr/bin/google-chrome-stable" 
+        self.chrome_options.add_argument("--headless")
+        self.chrome_options.add_argument("--no-sandbox")
+        self.chrome_options.add_argument("--disable-dev-shm-usage")
+        self.chrome_options.add_argument("--disable-gpu")
+        self.chrome_options.add_argument("window-size=1920,1080")
         print("--- [COG LOAD] Cog 'Browser' đã được tải. ---")
         
     def run_selenium_task(self, interaction: discord.Interaction):
-        """Hàm này sẽ chạy công việc của Selenium trong một luồng riêng."""
+        """Hàm này chạy công việc của Selenium trong một luồng riêng."""
         try:
-            # Di chuyển việc cấu hình options vào đây để mỗi luồng có 1 instance riêng
-            chrome_options = webdriver.ChromeOptions()
-            # Dùng đường dẫn chính xác của file thực thi mà Dockerfile mới cài đặt
-            chrome_options.binary_location = "/usr/bin/google-chrome-stable" 
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("window-size=1920,1080")
-
-            with webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=chrome_options) as driver:
+            # Bây giờ, khởi tạo webdriver rất đơn giản
+            # Selenium sẽ tự động tìm chromedriver trong /usr/bin
+            with webdriver.Chrome(options=self.chrome_options) as driver:
                 driver.get("https://muahacker.com/randomacclienquan/?nocache=1749613527280")
                 
                 button_xpath = "/html/body/div[6]/div/div[6]/button[1]"
+                # Logic còn lại giữ nguyên...
                 wait = WebDriverWait(driver, 10)
                 button = wait.until(EC.element_to_be_clickable((By.XPATH, button_xpath)))
                 button.click()
             
-            # Sử dụng followup.send để gửi tin nhắn sau khi đã defer
+            # Gửi tin nhắn thành công
             self.bot.loop.create_task(interaction.followup.send("✅ Bot đã click thành công!", ephemeral=True))
             
         except Exception as e:
             error_message = f"❌ Đã có lỗi xảy ra: {type(e).__name__}"
-            print(f"Lỗi Selenium: {e}")
+            print(f"Lỗi Selenium: {e}") # In lỗi chi tiết ra log của Render
             self.bot.loop.create_task(interaction.followup.send(error_message, ephemeral=True))
 
     @app_commands.command(name="start1", description="Khởi động tác vụ #1 trên trình duyệt ảo.")
@@ -55,10 +53,8 @@ class BrowserCog(commands.Cog):
             await interaction.response.send_message(f"Lệnh này chỉ dùng được trong <#{BROWSER_CHANNEL_ID}>.", ephemeral=True)
             return
         
-        # Bước 1: Phản hồi ngay lập tức cho Discord để tránh lỗi timeout
         await interaction.response.send_message("🚀 Đã nhận lệnh! Bắt đầu xử lý tác vụ trình duyệt...", ephemeral=True)
 
-        # Bước 2: Tạo và khởi chạy công việc Selenium trong một luồng riêng
         thread = threading.Thread(target=self.run_selenium_task, args=(interaction,))
         thread.start()
 
