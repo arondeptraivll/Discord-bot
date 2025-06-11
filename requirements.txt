@@ -1,7 +1,4 @@
-
 Flask
 discord.py
 requests
 gunicorn
-selenium
-webdriver-manager 
