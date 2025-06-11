@@ -1,4 +1,4 @@
---- START OF FILE features_extra.py ---
+
 
 # features_extra.py - Cog cho các tính năng ở kênh mới
 import discord
@@ -70,4 +70,4 @@ class ExtraFeaturesCog(commands.Cog):
 async def setup(bot: commands.Bot):
     await bot.add_cog(ExtraFeaturesCog(bot))
 
---- END OF FILE features_extra.py ---
+
