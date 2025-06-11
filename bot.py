@@ -1,4 +1,4 @@
-# bot.py (Phiên bản 5.4 - Logic khởi chạy được quản lý bởi main.py)
+# bot.py (Phiên bản 5.5 - Final interaction fix)
 import discord
 from discord import app_commands, ui
 from discord.ext import commands
@@ -197,11 +197,21 @@ client_instance = MyBotClient(intents=intents)
 # Các lệnh gốc của bot vẫn ở đây
 @client_instance.tree.command(name="start", description="Bắt đầu một phiên làm việc mới.")
 async def start(interaction: discord.Interaction):
-    if interaction.channel.id != SPAM_CHANNEL_ID: return await interaction.response.send_message(f"Lệnh chỉ dùng được trong <#{SPAM_CHANNEL_ID}>.", ephemeral=True)
+    if interaction.channel.id != SPAM_CHANNEL_ID: 
+        return await interaction.response.send_message(f"Lệnh chỉ dùng được trong <#{SPAM_CHANNEL_ID}>.", ephemeral=True)
+    
+    # === SỬA LỖI UNKNOWN INTERACTION ===
+    # Phản hồi ngay lập tức, nhưng để Discord hiển thị trạng thái "Thinking..."
     await interaction.response.defer(ephemeral=True)
+
+    # Sau đó mới thực hiện các công việc còn lại và gửi tin nhắn thật bằng followup
     embed = discord.Embed(title="🌟 GemLogin Spam Locket Tool 🌟", description="Chào mừng bạn! Vui lòng nhập License Key để tiếp tục.", color=discord.Color.blurple())
     embed.add_field(name="Cách có Key?", value=f"Liên hệ Admin <@{ADMIN_USER_ID}> để được cấp.", inline=False)
+    
+    # Gửi tin nhắn thật bằng followup.send và lưu lại message
     message = await interaction.followup.send(embed=embed, ephemeral=True, wait=True)
+    
+    # Gắn view vào tin nhắn đã gửi
     await message.edit(view=InitialView(original_message=message))
 
 @client_instance.tree.command(name="genkey", description="[Admin] Tạo một license key mới.")
