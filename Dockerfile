@@ -1,4 +1,4 @@
---- START OF FILE Dockerfile ---
+
 
 # Sử dụng base image Python 3.11 chính thức
 # "slim" là phiên bản nhẹ hơn, giúp quá trình build nhanh hơn
@@ -49,4 +49,3 @@ COPY . .
 # Nó sẽ thực thi file main.py, file này sẽ tự khởi động Gunicorn
 CMD ["python", "main.py"]
 
---- END OF FILE Dockerfile ---
