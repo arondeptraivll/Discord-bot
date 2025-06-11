@@ -1,18 +1,18 @@
-# bot.py (Phiên bản 5.5 - Final interaction fix)
+# bot.py (Phiên bản Gốc Ổn Định)
 import discord
 from discord import app_commands, ui
-from discord.ext import commands
 import os
 import datetime
 import time
 import asyncio
 from typing import Optional, Callable
+from threading import Thread
 from flask import Flask
 
 from spammer import SpamManager
 import keygen
 
-print("--- [MODULE LOAD] bot.py được nạp như một module... ---")
+print("--- [LAUNCH] Bot đang khởi chạy, phiên bản gốc ổn định... ---")
 
 # ==============================================================================
 # 1. CÀI ĐẶT
@@ -31,10 +31,12 @@ if not DISCORD_TOKEN or not ADMIN_USER_ID:
 
 spam_manager = SpamManager()
 intents = discord.Intents.default()
-client = None
+# Quay trở lại discord.Client đơn giản
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
 
 # ==============================================================================
-# 2. HELPER & UI (Phần này giữ nguyên hoàn toàn)
+# 2. HELPER & UI (Giữ nguyên)
 # ==============================================================================
 def format_time_left(expires_at_str):
     try:
@@ -153,7 +155,7 @@ class ActiveSpamView(ui.View):
                 self.stop()
                 embed.title, embed.color = "🛑 Phiên Spam Đã Dừng", discord.Color.dark_grey(); embed.clear_fields()
                 embed.add_field(name="Tổng Thành Công", value=f"✅ {stats['success']}").add_field(name="Tổng Thất Bại", value=f"❌ {stats['failed']}")
-                await self.status_message.edit(content="Hoàn tất!", embed=embed, view=None)
+                await self.original_message.edit(content="Hoàn tất!", embed=embed, view=None)
         except: self.stop()
     @ui.button(label='Dừng Spam', style=discord.ButtonStyle.red, emoji='🛑')
     async def stop_spam(self, interaction: discord.Interaction, button: ui.Button):
@@ -163,58 +165,24 @@ class ActiveSpamView(ui.View):
         else: await interaction.response.send_message("Không tìm thấy phiên spam để dừng.", ephemeral=True)
 
 # ==============================================================================
-# 3. CLIENT & LỆNH
+# 3. LỆNH & EVENTS
 # ==============================================================================
-# Kế thừa từ `commands.Bot` để có thể sử dụng Cogs
-class MyBotClient(commands.Bot):
-    def __init__(self, *, intents: discord.Intents):
-        # Cần có command_prefix, nhưng vì ta dùng slash command nên cứ để giá trị bất kỳ
-        super().__init__(command_prefix='!', intents=intents)
+@client.event
+async def on_ready():
+    await tree.sync()
+    print(f'--- [READY] Bot đã đăng nhập: {client.user} ---')
 
-    async def setup_hook(self):
-        global client
-        client = self
-
-        # Danh sách các Cogs cần nạp
-        cogs_to_load = ["features_extra", "browser_cog"]
-
-        for cog in cogs_to_load:
-            try:
-                await self.load_extension(cog)
-                print(f"--- [COG LOAD] Nạp Cog '{cog}' thành công. ---")
-            except Exception as e:
-                print(f"!!! [ERROR] Lỗi khi nạp Cog '{cog}': {e}")
-            
-        await self.tree.sync()
-        print("--- [SYNC] Đồng bộ lệnh lên Discord thành công. ---")
-
-    async def on_ready(self):
-        print(f'--- [READY] Bot đã đăng nhập: {self.user} ---')
-
-# Khởi tạo instance của Bot để file main.py có thể import
-client_instance = MyBotClient(intents=intents)
-
-# Các lệnh gốc của bot vẫn ở đây
-@client_instance.tree.command(name="start", description="Bắt đầu một phiên làm việc mới.")
+@tree.command(name="start", description="Bắt đầu một phiên làm việc mới.")
+@app_commands.checks.cooldown(1, 10, key=lambda i: i.user.id)
 async def start(interaction: discord.Interaction):
-    if interaction.channel.id != SPAM_CHANNEL_ID: 
-        return await interaction.response.send_message(f"Lệnh chỉ dùng được trong <#{SPAM_CHANNEL_ID}>.", ephemeral=True)
-    
-    # === SỬA LỖI UNKNOWN INTERACTION ===
-    # Phản hồi ngay lập tức, nhưng để Discord hiển thị trạng thái "Thinking..."
+    if interaction.channel.id != SPAM_CHANNEL_ID: return await interaction.response.send_message(f"Lệnh chỉ dùng được trong <#{SPAM_CHANNEL_ID}>.", ephemeral=True)
     await interaction.response.defer(ephemeral=True)
-
-    # Sau đó mới thực hiện các công việc còn lại và gửi tin nhắn thật bằng followup
     embed = discord.Embed(title="🌟 GemLogin Spam Locket Tool 🌟", description="Chào mừng bạn! Vui lòng nhập License Key để tiếp tục.", color=discord.Color.blurple())
     embed.add_field(name="Cách có Key?", value=f"Liên hệ Admin <@{ADMIN_USER_ID}> để được cấp.", inline=False)
-    
-    # Gửi tin nhắn thật bằng followup.send và lưu lại message
     message = await interaction.followup.send(embed=embed, ephemeral=True, wait=True)
-    
-    # Gắn view vào tin nhắn đã gửi
     await message.edit(view=InitialView(original_message=message))
 
-@client_instance.tree.command(name="genkey", description="[Admin] Tạo một license key mới.")
+@tree.command(name="genkey", description="[Admin] Tạo một license key mới.")
 @app_commands.describe(user="Người dùng nhận key.", days="Số ngày hiệu lực.")
 async def genkey(interaction: discord.Interaction, user: discord.User, days: int):
     if str(interaction.user.id) != ADMIN_USER_ID: return await interaction.response.send_message("❌ Bạn không có quyền.", ephemeral=True)
@@ -225,7 +193,7 @@ async def genkey(interaction: discord.Interaction, user: discord.User, days: int
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi khi tạo key: {e}", ephemeral=True)
 
-@client_instance.tree.command(name="listkeys", description="[Admin] Xem danh sách các key đang hoạt động.")
+@tree.command(name="listkeys", description="[Admin] Xem danh sách các key đang hoạt động.")
 async def listkeys(interaction: discord.Interaction):
     if str(interaction.user.id) != ADMIN_USER_ID: return await interaction.response.send_message("❌ Bạn không có quyền.", ephemeral=True)
     await interaction.response.defer(ephemeral=True)
@@ -237,7 +205,7 @@ async def listkeys(interaction: discord.Interaction):
     if len(keys) > 20: desc += f"\n... và {len(keys) - 20} key khác."
     await interaction.followup.send(embed=discord.Embed(title=f"🔑 {len(keys)} Keys đang hoạt động", description=desc + "```"), ephemeral=True)
 
-@client_instance.tree.command(name="delkey", description="[Admin] Vô hiệu hóa một key.")
+@tree.command(name="delkey", description="[Admin] Vô hiệu hóa một key.")
 @app_commands.describe(key="Key cần xóa.")
 async def delkey(interaction: discord.Interaction, key: str):
     if str(interaction.user.id) != ADMIN_USER_ID: return await interaction.response.send_message("❌ Bạn không có quyền.", ephemeral=True)
@@ -245,5 +213,8 @@ async def delkey(interaction: discord.Interaction, key: str):
     if keygen.delete_key(key): await interaction.followup.send(f"✅ Key `{key}` đã được vô hiệu hóa.", ephemeral=True)
     else: await interaction.followup.send(f"❌ Không tìm thấy key `{key}`.", ephemeral=True)
 
-# TOÀN BỘ PHẦN KHỞI CHẠY ĐÃ ĐƯỢC GỠ BỎ TỪ ĐÂY.
-# main.py SẼ CHỊU TRÁCH NHIỆM HOÀN TOÀN VIỆC NÀY.
+# Cooldown error handler
+@start.error
+async def on_start_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.CommandOnCooldown):
+        await interaction.response.send_message(f"Bạn đang dùng lệnh quá nhanh! Vui lòng chờ {error.retry_after:.1f} giây.", ephemeral=True)
