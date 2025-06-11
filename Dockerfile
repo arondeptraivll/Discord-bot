@@ -1,5 +1,3 @@
-
-
 # Sử dụng base image Python 3.11 chính thức
 # "slim" là phiên bản nhẹ hơn, giúp quá trình build nhanh hơn
 FROM python:3.11-slim
@@ -48,4 +46,3 @@ COPY . .
 # Lệnh để khởi chạy ứng dụng của bạn
 # Nó sẽ thực thi file main.py, file này sẽ tự khởi động Gunicorn
 CMD ["python", "main.py"]
-
