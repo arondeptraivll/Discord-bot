@@ -1,6 +1,9 @@
-# bot.py (Phiên bản 5.1 - Prestige on Stable Core)
+
+
+# bot.py (Phiên bản 5.3 - Hỗ trợ Docker & Browser Cog)
 import discord
 from discord import app_commands, ui
+from discord.ext import commands # <-- Nâng cấp quan trọng
 import os
 import datetime
 import time
@@ -12,7 +15,7 @@ from flask import Flask
 from spammer import SpamManager
 import keygen
 
-print("--- [LAUNCH] Bot đang khởi chạy, phiên bản 5.1 (Prestige on Stable Core)... ---")
+print("--- [LAUNCH] Bot đang khởi chạy, phiên bản 5.3 (Docker & Browser Cog)... ---")
 
 # ==============================================================================
 # 1. CÀI ĐẶT
@@ -31,11 +34,10 @@ if not DISCORD_TOKEN or not ADMIN_USER_ID:
 
 spam_manager = SpamManager()
 intents = discord.Intents.default()
-# Cần client.loop để dùng run_coroutine_threadsafe
-client = None 
+client = None
 
 # ==============================================================================
-# 2. HELPER & UI
+# 2. HELPER & UI (Phần này giữ nguyên hoàn toàn)
 # ==============================================================================
 def format_time_left(expires_at_str):
     try:
@@ -50,11 +52,9 @@ def format_time_left(expires_at_str):
 
 class KeyEntryModal(ui.Modal, title='🔑 Nhập License Key'):
     key_input = ui.TextInput(label='License Key', placeholder='Dán key của bạn vào đây...')
-
     def __init__(self, original_message: discord.WebhookMessage):
         super().__init__(timeout=None)
         self.original_message = original_message
-    
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
         result = spam_manager.validate_license(self.key_input.value)
@@ -71,24 +71,16 @@ class SpamSetupModal(ui.Modal, title='🛠️ Cấu hình phiên Spam'):
     target_input = ui.TextInput(label='🎯 Locket Target (Username/Link)', placeholder='Ví dụ: mylocketuser hoặc link invite', required=True)
     name_input = ui.TextInput(label='👤 Custom Username (Tối đa 20 ký tự)', placeholder='Để trống để dùng tên mặc định', required=False, max_length=20)
     emoji_input = ui.TextInput(label='🎨 Sử dụng Emoji ngẫu nhiên? (y/n)', placeholder='y (có) hoặc n (không) - mặc định là có', required=False, max_length=1)
-
     def __init__(self, key: str, original_message: discord.WebhookMessage):
         super().__init__(timeout=None)
-        self.key = key
-        self.original_message = original_message
-        
+        self.key, self.original_message = key, original_message
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
-        
         target = self.target_input.value
         custom_name = self.name_input.value if self.name_input.value.strip() else "zLocket Tool"
         use_emojis = self.emoji_input.value.lower().strip() != 'n'
-
         await self.original_message.delete()
-        
         status_view = ActiveSpamView()
-
-        # Tạo tin nhắn trạng thái ban đầu
         status_embed = discord.Embed(
             title="🔄 Khởi động phiên spam...",
             description=f"**Target:** `{target}`\n**Username:** `{custom_name}`\n**Emoji:** {'Bật' if use_emojis else 'Tắt'}",
@@ -96,52 +88,41 @@ class SpamSetupModal(ui.Modal, title='🛠️ Cấu hình phiên Spam'):
         )
         status_message = await interaction.followup.send(embed=status_embed, ephemeral=True, view=status_view, wait=True)
         status_view.set_message(status_message)
-
-
         def update_callback(status: str, stats: Optional[dict]=None, message: Optional[str]=None):
-            # Cần client.loop đã được khởi tạo
             if client and client.loop:
                 asyncio.run_coroutine_threadsafe(
-                    status_view.update_message(status, stats, message), 
+                    status_view.update_message(status, stats, message),
                     client.loop
                 )
-        
         spam_manager.start_spam_session(interaction.user.id, target, custom_name, use_emojis, update_callback)
-        # Không cần làm gì thêm ở đây, callback sẽ lo phần cập nhật
 
 class SpamConfigView(ui.View):
     def __init__(self, key: str, key_info: dict, original_message: discord.WebhookMessage):
         super().__init__(timeout=600)
         self.key, self.key_info, self.original_message = key, key_info, original_message
         self.update_embed()
-
     def update_embed(self):
         embed = self.original_message.embeds[0]
         embed.description = f"Key còn **{format_time_left(self.key_info.get('expires_at'))}**.\nNhấn nút bên dưới để cấu hình và chạy."
         embed.set_footer(text=f"Key: {self.key}")
-
     @ui.button(label='🚀 Cấu hình & Bắt đầu', style=discord.ButtonStyle.success, emoji='🛠️')
     async def setup_and_start(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_modal(SpamSetupModal(self.key, self.original_message))
-    
     async def on_timeout(self):
         try:
             embed = self.original_message.embeds[0]
             embed.title, embed.description = "⌛ Phiên làm việc đã hết hạn", "Dùng `/start` để bắt đầu lại."
-            embed.color, embed.clear_fields()
-            await self.original_message.edit(embed=embed, view=None)
+            embed.color, embed.clear_fields(); await self.original_message.edit(embed=embed, view=None)
         except: pass
 
 class InitialView(ui.View):
     def __init__(self, original_message: Optional[discord.WebhookMessage]=None):
         super().__init__(timeout=300)
         self.original_message = original_message
-
     @ui.button(label='Nhập Key', style=discord.ButtonStyle.primary, emoji='🔑')
     async def enter_key(self, interaction: discord.Interaction, button: ui.Button):
         if not self.original_message: return await interaction.response.send_message("Lỗi: Phiên đã hết hạn.", ephemeral=True)
         await interaction.response.send_modal(KeyEntryModal(original_message=self.original_message))
-    
     async def on_timeout(self):
         try:
             if self.original_message and self.original_message.embeds:
@@ -154,28 +135,18 @@ class ActiveSpamView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
         self.status_message = None
-
     def set_message(self, message: discord.WebhookMessage):
         self.status_message = message
-
     async def update_message(self, status: str, stats: Optional[dict] = None, message_text: Optional[str] = None):
         if not self.status_message: return
-
         if status == "error":
-            embed = self.status_message.embeds[0]
-            embed.title="❌ Lỗi nghiêm trọng"
-            embed.description = message_text
-            embed.color=discord.Color.red()
-            await self.status_message.edit(embed=embed, view=None)
-            self.stop()
+            embed = self.status_message.embeds[0]; embed.title="❌ Lỗi nghiêm trọng"; embed.description = message_text
+            embed.color=discord.Color.red(); await self.status_message.edit(embed=embed, view=None); self.stop()
             return
-            
         embed = self.status_message.embeds[0]
         try:
             if status == "running":
-                embed.title = "🚀 Trạng thái Spam: Đang Chạy"
-                embed.color = discord.Color.blue()
-                embed.clear_fields()
+                embed.title = "🚀 Trạng thái Spam: Đang Chạy"; embed.color = discord.Color.blue(); embed.clear_fields()
                 embed.add_field(name="Thành Công", value=f"✅ {stats['success']}", inline=True)
                 embed.add_field(name="Thất Bại", value=f"❌ {stats['failed']}", inline=True)
                 runtime = datetime.timedelta(seconds=int(time.time() - stats['start_time']))
@@ -183,12 +154,10 @@ class ActiveSpamView(ui.View):
                 await self.status_message.edit(embed=embed)
             elif status == "stopped":
                 self.stop()
-                embed.title, embed.color = "🛑 Phiên Spam Đã Dừng", discord.Color.dark_grey()
-                embed.clear_fields()
+                embed.title, embed.color = "🛑 Phiên Spam Đã Dừng", discord.Color.dark_grey(); embed.clear_fields()
                 embed.add_field(name="Tổng Thành Công", value=f"✅ {stats['success']}").add_field(name="Tổng Thất Bại", value=f"❌ {stats['failed']}")
                 await self.status_message.edit(content="Hoàn tất!", embed=embed, view=None)
         except: self.stop()
-
     @ui.button(label='Dừng Spam', style=discord.ButtonStyle.red, emoji='🛑')
     async def stop_spam(self, interaction: discord.Interaction, button: ui.Button):
         if spam_manager.stop_spam_session(interaction.user.id):
@@ -199,14 +168,26 @@ class ActiveSpamView(ui.View):
 # ==============================================================================
 # 3. CLIENT & LỆNH
 # ==============================================================================
-class MyBotClient(discord.Client):
+# Kế thừa từ `commands.Bot` để có thể sử dụng Cogs
+class MyBotClient(commands.Bot):
     def __init__(self, *, intents: discord.Intents):
-        super().__init__(intents=intents)
-        self.tree = app_commands.CommandTree(self)
+        # Cần có command_prefix, nhưng vì ta dùng slash command nên cứ để giá trị bất kỳ
+        super().__init__(command_prefix='!', intents=intents)
 
     async def setup_hook(self):
-        global client # Cập nhật biến client global để các nơi khác có thể truy cập
+        global client
         client = self
+
+        # Danh sách các Cogs cần nạp
+        cogs_to_load = ["features_extra", "browser_cog"]
+
+        for cog in cogs_to_load:
+            try:
+                await self.load_extension(cog)
+                print(f"--- [COG LOAD] Nạp Cog '{cog}' thành công. ---")
+            except Exception as e:
+                print(f"!!! [ERROR] Lỗi khi nạp Cog '{cog}': {e}")
+            
         await self.tree.sync()
         print("--- [SYNC] Đồng bộ lệnh lên Discord thành công. ---")
 
@@ -215,6 +196,7 @@ class MyBotClient(discord.Client):
 
 client_instance = MyBotClient(intents=intents)
 
+# Các lệnh gốc của bot vẫn ở đây
 @client_instance.tree.command(name="start", description="Bắt đầu một phiên làm việc mới.")
 async def start(interaction: discord.Interaction):
     if interaction.channel.id != SPAM_CHANNEL_ID: return await interaction.response.send_message(f"Lệnh chỉ dùng được trong <#{SPAM_CHANNEL_ID}>.", ephemeral=True)
@@ -237,7 +219,6 @@ async def genkey(interaction: discord.Interaction, user: discord.User, days: int
 
 @client_instance.tree.command(name="listkeys", description="[Admin] Xem danh sách các key đang hoạt động.")
 async def listkeys(interaction: discord.Interaction):
-    #... (Giữ nguyên code từ bản trước)
     if str(interaction.user.id) != ADMIN_USER_ID: return await interaction.response.send_message("❌ Bạn không có quyền.", ephemeral=True)
     await interaction.response.defer(ephemeral=True)
     keys = {k: v for k, v in keygen.load_keys().items() if v.get('is_active') and datetime.datetime.fromisoformat(v['expires_at']) > datetime.datetime.now(datetime.timezone.utc)}
@@ -251,20 +232,31 @@ async def listkeys(interaction: discord.Interaction):
 @client_instance.tree.command(name="delkey", description="[Admin] Vô hiệu hóa một key.")
 @app_commands.describe(key="Key cần xóa.")
 async def delkey(interaction: discord.Interaction, key: str):
-    #... (Giữ nguyên code từ bản trước)
     if str(interaction.user.id) != ADMIN_USER_ID: return await interaction.response.send_message("❌ Bạn không có quyền.", ephemeral=True)
     await interaction.response.defer(ephemeral=True)
     if keygen.delete_key(key): await interaction.followup.send(f"✅ Key `{key}` đã được vô hiệu hóa.", ephemeral=True)
     else: await interaction.followup.send(f"❌ Không tìm thấy key `{key}`.", ephemeral=True)
 
 # ==============================================================================
-# 4. KHỞI CHẠY (LOGIC TƯƠNG THÍCH GUNICORN ỔN ĐỊNH)
+# 4. KHỞI CHẠY (LOGIC GIỮ NGUYÊN)
 # ==============================================================================
 def run_bot():
     if DISCORD_TOKEN:
         print("--- [BOT] Đang khởi chạy bot Discord trong một luồng riêng...")
-        client_instance.run(DISCORD_TOKEN)
+        try:
+            client_instance.run(DISCORD_TOKEN)
+        except Exception as e:
+            print(f"!!! [CRITICAL BOT ERROR] Bot đã dừng với lỗi: {e}")
 
-bot_thread = Thread(target=run_bot)
-bot_thread.daemon = True
-bot_thread.start()
+
+# Phần này đã được xử lý bởi file main.py và Gunicorn, nhưng vẫn để đây cho rõ ràng
+# nếu bạn muốn chạy file này trực tiếp để test.
+# Để tránh khởi chạy 2 lần, chỉ chạy luồng bot nếu file này không phải là entrypoint chính.
+if __name__ != "__main__":
+    bot_thread = Thread(target=run_bot)
+    bot_thread.daemon = True
+    # Không start() ở đây vì Gunicorn sẽ quản lý qua main.py
+else:
+    # Nếu chạy bot.py trực tiếp để debug
+    print("Chạy bot.py trực tiếp để debug...")
+    run_bot()
