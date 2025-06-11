@@ -1,4 +1,4 @@
-# bot.py (Phiên bản Gốc Ổn Định)
+# bot.py (Phiên bản Gốc Ổn Định - Đã Sửa Lỗi)
 import discord
 from discord import app_commands, ui
 import os
@@ -138,11 +138,16 @@ class ActiveSpamView(ui.View):
         self.status_message = message
     async def update_message(self, status: str, stats: Optional[dict] = None, message_text: Optional[str] = None):
         if not self.status_message: return
-        if status == "error":
-            embed = self.status_message.embeds[0]; embed.title="❌ Lỗi nghiêm trọng"; embed.description = message_text
-            embed.color=discord.Color.red(); await self.status_message.edit(embed=embed, view=None); self.stop()
-            return
         embed = self.status_message.embeds[0]
+        
+        if status == "error":
+            embed.title="❌ Lỗi nghiêm trọng"
+            embed.description = message_text
+            embed.color=discord.Color.red()
+            await self.status_message.edit(embed=embed, view=None)
+            self.stop()
+            return
+
         try:
             if status == "running":
                 embed.title = "🚀 Trạng thái Spam: Đang Chạy"; embed.color = discord.Color.blue(); embed.clear_fields()
@@ -154,9 +159,15 @@ class ActiveSpamView(ui.View):
             elif status == "stopped":
                 self.stop()
                 embed.title, embed.color = "🛑 Phiên Spam Đã Dừng", discord.Color.dark_grey(); embed.clear_fields()
-                embed.add_field(name="Tổng Thành Công", value=f"✅ {stats['success']}").add_field(name="Tổng Thất Bại", value=f"❌ {stats['failed']}")
-                await self.original_message.edit(content="Hoàn tất!", embed=embed, view=None)
-        except: self.stop()
+                embed.add_field(name="Tổng Thành Công", value=f"✅ {stats['success']}")
+                embed.add_field(name="Tổng Thất Bại", value=f"❌ {stats['failed']}")
+                # SỬA LỖI: Sử dụng self.status_message thay vì self.original_message
+                await self.status_message.edit(content="Hoàn tất!", embed=embed, view=None)
+        except discord.errors.NotFound: # Bắt lỗi nếu tin nhắn đã bị xóa hoặc không tìm thấy
+            self.stop()
+        except Exception: # Bắt các lỗi khác và dừng view
+            self.stop()
+            
     @ui.button(label='Dừng Spam', style=discord.ButtonStyle.red, emoji='🛑')
     async def stop_spam(self, interaction: discord.Interaction, button: ui.Button):
         if spam_manager.stop_spam_session(interaction.user.id):
