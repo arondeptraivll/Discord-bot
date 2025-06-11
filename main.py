@@ -1,9 +1,7 @@
-
 # main.py - Entrypoint chính để chạy ứng dụng trên Render
 import os
 from threading import Thread
 
-# --- THAY ĐỔI QUAN TRỌNG ---
 # Import 'app' và bot 'client_instance' từ file bot.py, nơi chúng được định nghĩa.
 # Đổi tên 'client_instance' thành 'client' để giữ sự tương thích với code bên dưới.
 from bot import app, client_instance as client, DISCORD_TOKEN
@@ -49,7 +47,7 @@ class StandaloneApplication(BaseApplication):
     def load(self):
         return self.application
 
-# Đây là khối code được thực thi khi bạn chạy `python main.py` (hoặc khi Render chạy nó).
+# Đây là khối code được thực thi khi Render chạy `python main.py`.
 if __name__ == '__main__':
     # Render sẽ cung cấp biến môi trường 'PORT'
     # Nếu không có, mặc định là 8080 để test trên máy local
