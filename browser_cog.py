@@ -1,5 +1,3 @@
-
-
 # browser_cog.py - Cog để điều khiển trình duyệt ảo
 import discord
 from discord import app_commands
@@ -18,15 +16,18 @@ class BrowserCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         chrome_options = webdriver.ChromeOptions()
+        # === THAY ĐỔI DUY NHẤT: CHỈ ĐỊNH ĐƯỜNG DẪN CHROME ===
+        chrome_options.binary_location = "/usr/bin/google-chrome"
+        # =======================================================
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("window-size=1920,1080")
+        
         self.chrome_options = chrome_options
         print("--- [COG LOAD] Cog 'Browser' đã được tải. ---")
 
-    # --- THAY ĐỔI: Đổi tên lệnh thành 'start1' ---
     @app_commands.command(name="start1", description="Khởi động tác vụ #1 trên trình duyệt ảo.")
     async def start1(self, interaction: discord.Interaction):
         if interaction.channel.id != BROWSER_CHANNEL_ID:
@@ -51,9 +52,9 @@ class BrowserCog(commands.Cog):
             await interaction.followup.send("✅ Bot đã click thành công!", ephemeral=True)
 
         except Exception as e:
+            # In ra console để bạn debug
             print(f"Lỗi Selenium: {e}")
             await interaction.followup.send(f"❌ Đã có lỗi xảy ra trong quá trình điều khiển trình duyệt. Lỗi: {type(e).__name__}", ephemeral=True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(BrowserCog(bot))
-
