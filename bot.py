@@ -1,4 +1,4 @@
-# bot.py (Phiên bản Gốc Ổn Định + Tính năng mới)
+# bot.py (Phiên bản Sửa Lỗi và Cập Nhật Tin Nhắn)
 import discord
 from discord import app_commands, ui
 import os
@@ -9,7 +9,6 @@ from typing import Optional, Callable
 from threading import Thread
 from flask import Flask
 
-# Import các module logic đã tách
 from spammer import SpamManager
 import keygen
 import account_manager
@@ -27,7 +26,6 @@ def home():
 DISCORD_TOKEN = os.environ.get('DISCORD_TOKEN')
 ADMIN_USER_ID = os.environ.get('ADMIN_USER_ID')
 SPAM_CHANNEL_ID = int(os.environ.get('SPAM_CHANNEL_ID', 1381799563488399452))
-# ID kênh mới cho chức năng Liên Quân
 AOV_CHANNEL_ID = 1382203422094266390
 
 if not DISCORD_TOKEN or not ADMIN_USER_ID:
@@ -35,7 +33,6 @@ if not DISCORD_TOKEN or not ADMIN_USER_ID:
 
 spam_manager = SpamManager()
 intents = discord.Intents.default()
-# Quay trở lại discord.Client đơn giản
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
@@ -190,9 +187,8 @@ async def start(interaction: discord.Interaction):
     message = await interaction.followup.send(embed=embed, ephemeral=True, wait=True)
     await message.edit(view=InitialView(original_message=message))
 
-# LỆNH MỚI: Cung cấp tài khoản Liên Quân
 @tree.command(name="start1", description="Nhận một tài khoản Liên Quân ngẫu nhiên.")
-@app_commands.checks.cooldown(1, 60, key=lambda i: i.user.id) # Cooldown 60 giây mỗi người
+@app_commands.checks.cooldown(1, 60, key=lambda i: i.user.id)
 async def start1(interaction: discord.Interaction):
     if interaction.channel.id != AOV_CHANNEL_ID:
         await interaction.response.send_message(f"Lệnh này chỉ có thể sử dụng trong kênh <#{AOV_CHANNEL_ID}>.", ephemeral=True)
@@ -202,7 +198,7 @@ async def start1(interaction: discord.Interaction):
     if account:
         embed = discord.Embed(
             title="🎁 Tài Khoản Liên Quân Của Bạn 🎁",
-            description="Vui lòng đăng nhập và **không đổi mật khẩu** để người khác còn sử dụng.",
+            description="Vui lòng **đăng nhập bằng Garena**.\n*Lưu ý: Không thể đổi mật khẩu do tài khoản đã được bảo mật.*",
             color=discord.Color.gold()
         )
         embed.add_field(name="🔐 Tài khoản", value=f"```{account['username']}```", inline=False)
@@ -249,10 +245,18 @@ async def delkey(interaction: discord.Interaction, key: str):
 # ==============================================================================
 @start1.error
 async def on_start1_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    if isinstance(error, app_commands.CommandOnCooldown):
-        await interaction.response.send_message(f"Bạn cần phải chờ thêm **{error.retry_after:.1f} giây** nữa để có thể nhận tài khoản tiếp theo.", ephemeral=True)
+    try:
+        if isinstance(error, app_commands.CommandOnCooldown):
+            await interaction.response.send_message(f"Bạn cần phải chờ thêm **{error.retry_after:.1f} giây** nữa để có thể nhận tài khoản tiếp theo.", ephemeral=True)
+    except discord.errors.NotFound:
+        # Bỏ qua lỗi nếu tương tác đã hết hạn do bot khởi động lại
+        pass
 
 @start.error
 async def on_start_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    if isinstance(error, app_commands.CommandOnCooldown):
-        await interaction.response.send_message(f"Bạn đang dùng lệnh quá nhanh! Vui lòng chờ {error.retry_after:.1f} giây.", ephemeral=True)
+    try:
+        if isinstance(error, app_commands.CommandOnCooldown):
+            await interaction.response.send_message(f"Bạn đang dùng lệnh quá nhanh! Vui lòng chờ {error.retry_after:.1f} giây.", ephemeral=True)
+    except discord.errors.NotFound:
+        # Bỏ qua lỗi nếu tương tác đã hết hạn do bot khởi động lại
+        pass
