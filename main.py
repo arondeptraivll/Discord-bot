@@ -1,46 +1,25 @@
-# account_manager.py
-import re
-import random
-from typing import Optional, Dict
+# main.py
+import os
+import asyncio
+from bot import app, client, DISCORD_TOKEN
 
-ACCOUNT_FILE = 'account_aov.txt'
+# Gunicorn sẽ chạy đối tượng `app` này.
+# Không cần threading ở đây nữa.
 
-def parse_account_line(line: str) -> Optional[Dict[str, str]]:
-    """Phân tích một dòng trong file tài khoản thành username và password."""
-    # Sử dụng regex để tìm chính xác tài khoản và mật khẩu
-    match = re.search(r"Tài khoản:\s*(.*?)\s*🔑 Mật khẩu:\s*(.*)", line)
-    if match:
-        username = match.group(1).strip()
-        password = match.group(2).strip()
-        return {"username": username, "password": password}
-    return None
+@app.before_serving
+async def before_serving():
+    """Hàm này sẽ chạy TRƯỚC KHI web server bắt đầu nhận request."""
+    print("--- [GUNICORN] Web server sắp khởi động, bắt đầu chạy Discord Bot... ---")
+    # Tạo một task để chạy bot bất đồng bộ
+    # Bot sẽ chạy song song với web server trong cùng một event loop
+    loop = asyncio.get_event_loop()
+    loop.create_task(client.start(DISCORD_TOKEN))
+    print("--- [GUNICORN] Task chạy Discord Bot đã được tạo. ---")
 
-def get_random_account() -> Optional[Dict[str, str]]:
-    """
-    Đọc file account_aov.txt, phân tích cú pháp các dòng,
-    và trả về một tài khoản ngẫu nhiên.
-    """
-    try:
-        with open(ACCOUNT_FILE, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        # Lọc ra những dòng hợp lệ và phân tích chúng
-        accounts = []
-        for line in lines:
-            if line.strip(): # Bỏ qua các dòng trống
-                parsed = parse_account_line(line)
-                if parsed:
-                    accounts.append(parsed)
-
-        if not accounts:
-            return None # Không có tài khoản nào hợp lệ trong file
-        
-        # Chọn ngẫu nhiên một tài khoản từ danh sách
-        return random.choice(accounts)
-
-    except FileNotFoundError:
-        print(f"!!! [ERROR] Không tìm thấy file dữ liệu tài khoản: {ACCOUNT_FILE}")
-        return None
-    except Exception as e:
-        print(f"!!! [ERROR] Lỗi khi đọc file tài khoản: {e}")
-        return None
+@app.after_serving
+async def after_serving():
+    """Hàm này sẽ chạy KHI web server tắt."""
+    print("--- [GUNICORN] Web server đang tắt, đóng kết nối bot... ---")
+    if not client.is_closed():
+        await client.close()
+    print("--- [GUNICORN] Bot đã được đóng. ---")
