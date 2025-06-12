@@ -1,5 +1,4 @@
 Flask
 discord.py
 requests
-aiofiles
 waitress
