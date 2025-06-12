@@ -1,25 +1,44 @@
-# main.py
+# main.py (Threading ổn định)
 import os
-import asyncio
+import time
+from threading import Thread
 from bot import app, client, DISCORD_TOKEN
 
-# Gunicorn sẽ chạy đối tượng `app` này.
-# Không cần threading ở đây nữa.
+def run_bot():
+    """Hàm chạy Discord bot."""
+    if not DISCORD_TOKEN:
+        print("!!! [CRITICAL] Không tìm thấy DISCORD_TOKEN, bot không chạy.")
+        return
+    
+    try:
+        print("--- [THREAD] Luồng Discord Bot đang khởi chạy... ---")
+        client.run(DISCORD_TOKEN)
+    except Exception as e:
+        print(f"!!! [CRITICAL] Lỗi nghiêm trọng trong luồng bot: {e}")
 
-@app.before_serving
-async def before_serving():
-    """Hàm này sẽ chạy TRƯỚC KHI web server bắt đầu nhận request."""
-    print("--- [GUNICORN] Web server sắp khởi động, bắt đầu chạy Discord Bot... ---")
-    # Tạo một task để chạy bot bất đồng bộ
-    # Bot sẽ chạy song song với web server trong cùng một event loop
-    loop = asyncio.get_event_loop()
-    loop.create_task(client.start(DISCORD_TOKEN))
-    print("--- [GUNICORN] Task chạy Discord Bot đã được tạo. ---")
+def run_web_server():
+    """Hàm chạy Flask web server."""
+    port = int(os.environ.get('PORT', 8080))
+    print(f"--- [THREAD] Luồng Web Server đang khởi chạy trên cổng {port}... ---")
+    # Sử dụng waitress thay cho server mặc định của Flask để ổn định hơn
+    from waitress import serve
+    serve(app, host='0.0.0.0', port=port)
 
-@app.after_serving
-async def after_serving():
-    """Hàm này sẽ chạy KHI web server tắt."""
-    print("--- [GUNICORN] Web server đang tắt, đóng kết nối bot... ---")
-    if not client.is_closed():
-        await client.close()
-    print("--- [GUNICORN] Bot đã được đóng. ---")
+if __name__ == '__main__':
+    print("--- [LAUNCH] Khởi chạy ứng dụng đa luồng... ---")
+
+    web_thread = Thread(target=run_web_server)
+    bot_thread = Thread(target=run_bot)
+    
+    # Ưu tiên khởi động luồng web trước để Render phát hiện cổng
+    web_thread.start()
+    
+    # Chờ một chút để web server chắc chắn đã khởi động
+    print("--- [LAUNCH] Chờ 5 giây cho web server ổn định... ---")
+    time.sleep(5)
+    
+    # Sau đó mới khởi động luồng bot
+    bot_thread.start()
+    
+    web_thread.join()
+    bot_thread.join()
