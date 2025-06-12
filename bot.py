@@ -1,4 +1,4 @@
-# bot.py (Phiên bản Cuối Cùng - Chống Mọi Lỗi và Có Tính Năng Đổi Acc - Fix Blocking IO)
+# bot.py (Phiên bản Cuối Cùng - Chống Mọi Lỗi và Có Tính Năng Đổi Acc - Fix Blocking IO & Typo)
 import discord
 from discord import app_commands, ui
 import os
@@ -48,7 +48,6 @@ class KeyEntryModal(ui.Modal, title='🔑 Nhập License Key Locket'):
     def __init__(self, original_message: discord.WebhookMessage): super().__init__(timeout=None); self.original_message = original_message
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
-        # SỬA LỖI BLOCKING IO
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, spam_manager.validate_license, self.key_input.value)
 
@@ -65,7 +64,6 @@ class SpamSetupModal(ui.Modal, title='🛠️ Cấu hình phiên Spam'):
         status_view.set_message(status_message)
         def update_callback(status: str, stats: Optional[dict]=None, message: Optional[str]=None):
             if client and client.loop: asyncio.run_coroutine_threadsafe(status_view.update_message(status, stats, message), client.loop)
-        # SpamManager đã được thiết kế để chạy trên luồng riêng nên không cần sửa
         spam_manager.start_spam_session(interaction.user.id, target, custom_name, use_emojis, update_callback)
 class SpamConfigView(ui.View):
     def __init__(self, key: str, key_info: dict, original_message: discord.WebhookMessage): super().__init__(timeout=600); self.key, self.key_info, self.original_message = key, key_info, original_message; self.update_embed()
@@ -110,7 +108,7 @@ class ActiveSpamView(ui.View):
 class AOVAccountView(ui.View):
     """View hiển thị sau khi lấy tài khoản thành công, chứa nút 'Đổi tài khoản'."""
     def __init__(self, key: str, initial_attempts: int):
-        super().__init__(timeout=7200) # Timeout 2 giờ
+        super().__init__(timeout=7200)
         self.key = key
         self.message = None
 
@@ -237,7 +235,6 @@ class AOVInitialView(ui.View):
 # ==============================================================================
 @client.event
 async def on_ready():
-    # Load tài khoản vào cache một cách bất đồng bộ
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, account_manager.load_accounts_into_cache)
     await tree.sync()
@@ -265,7 +262,6 @@ async def start1(interaction: discord.Interaction):
 async def admin_command_wrapper(interaction: discord.Interaction, admin_logic):
     if str(interaction.user.id) != ADMIN_USER_ID: return await handle_error_response(interaction, "❌ Bạn không có quyền.")
     await interaction.response.defer(ephemeral=True)
-    # Không cần chạy logic admin trong executor vì chỉ có admin dùng, ít rủi ro blocking hơn
     await admin_logic(interaction)
 
 @tree.command(name="genkey", description="[Admin] Tạo một key Locket mới.")
@@ -306,8 +302,9 @@ async def listkeys1(interaction: discord.Interaction):
         if len(keys) > 20: desc += f"\n... và {len(keys) - 20} key khác."
         await inter.followup.send(embed=discord.Embed(title=f"🔑 {len(keys)} Keys Liên Quân đang hoạt động", description=desc + "```"), ephemeral=True)
     await admin_command_wrapper(interaction, logic)
+
 @tree.command(name="delkey1", description="[Admin] Vô hiệu hóa một key Liên Quân.")
-@app_amides.describe(key="Key Liên Quân cần xóa.")
+@app_commands.describe(key="Key Liên Quân cần xóa.") # <-- SỬA LỖI Ở ĐÂY
 async def delkey1(interaction: discord.Interaction, key: str):
     async def logic(inter):
         if aov_keygen.delete_key(key): await inter.followup.send(f"✅ Key Liên Quân `{key}` đã được vô hiệu hóa.", ephemeral=True)
