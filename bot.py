@@ -1,4 +1,4 @@
-# bot.py (Phiên bản Gốc Ổn Định - Đã Sửa Lỗi)
+# bot.py (Phiên bản Gốc Ổn Định + Tính năng mới)
 import discord
 from discord import app_commands, ui
 import os
@@ -9,8 +9,10 @@ from typing import Optional, Callable
 from threading import Thread
 from flask import Flask
 
+# Import các module logic đã tách
 from spammer import SpamManager
 import keygen
+import account_manager
 
 print("--- [LAUNCH] Bot đang khởi chạy, phiên bản gốc ổn định... ---")
 
@@ -25,6 +27,8 @@ def home():
 DISCORD_TOKEN = os.environ.get('DISCORD_TOKEN')
 ADMIN_USER_ID = os.environ.get('ADMIN_USER_ID')
 SPAM_CHANNEL_ID = int(os.environ.get('SPAM_CHANNEL_ID', 1381799563488399452))
+# ID kênh mới cho chức năng Liên Quân
+AOV_CHANNEL_ID = 1382203422094266390
 
 if not DISCORD_TOKEN or not ADMIN_USER_ID:
     print("!!! [CRITICAL] Thiếu DISCORD_TOKEN hoặc ADMIN_USER_ID.")
@@ -36,7 +40,7 @@ client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
 # ==============================================================================
-# 2. HELPER & UI (Giữ nguyên)
+# 2. HELPER & UI (Dành cho chức năng Spam)
 # ==============================================================================
 def format_time_left(expires_at_str):
     try:
@@ -141,13 +145,10 @@ class ActiveSpamView(ui.View):
         embed = self.status_message.embeds[0]
         
         if status == "error":
-            embed.title="❌ Lỗi nghiêm trọng"
-            embed.description = message_text
-            embed.color=discord.Color.red()
-            await self.status_message.edit(embed=embed, view=None)
-            self.stop()
+            embed.title="❌ Lỗi nghiêm trọng"; embed.description = message_text
+            embed.color=discord.Color.red(); await self.status_message.edit(embed=embed, view=None); self.stop()
             return
-
+            
         try:
             if status == "running":
                 embed.title = "🚀 Trạng thái Spam: Đang Chạy"; embed.color = discord.Color.blue(); embed.clear_fields()
@@ -159,14 +160,10 @@ class ActiveSpamView(ui.View):
             elif status == "stopped":
                 self.stop()
                 embed.title, embed.color = "🛑 Phiên Spam Đã Dừng", discord.Color.dark_grey(); embed.clear_fields()
-                embed.add_field(name="Tổng Thành Công", value=f"✅ {stats['success']}")
-                embed.add_field(name="Tổng Thất Bại", value=f"❌ {stats['failed']}")
-                # SỬA LỖI: Sử dụng self.status_message thay vì self.original_message
+                embed.add_field(name="Tổng Thành Công", value=f"✅ {stats['success']}").add_field(name="Tổng Thất Bại", value=f"❌ {stats['failed']}")
                 await self.status_message.edit(content="Hoàn tất!", embed=embed, view=None)
-        except discord.errors.NotFound: # Bắt lỗi nếu tin nhắn đã bị xóa hoặc không tìm thấy
-            self.stop()
-        except Exception: # Bắt các lỗi khác và dừng view
-            self.stop()
+        except discord.errors.NotFound: self.stop()
+        except Exception: self.stop()
             
     @ui.button(label='Dừng Spam', style=discord.ButtonStyle.red, emoji='🛑')
     async def stop_spam(self, interaction: discord.Interaction, button: ui.Button):
@@ -193,6 +190,29 @@ async def start(interaction: discord.Interaction):
     message = await interaction.followup.send(embed=embed, ephemeral=True, wait=True)
     await message.edit(view=InitialView(original_message=message))
 
+# LỆNH MỚI: Cung cấp tài khoản Liên Quân
+@tree.command(name="start1", description="Nhận một tài khoản Liên Quân ngẫu nhiên.")
+@app_commands.checks.cooldown(1, 60, key=lambda i: i.user.id) # Cooldown 60 giây mỗi người
+async def start1(interaction: discord.Interaction):
+    if interaction.channel.id != AOV_CHANNEL_ID:
+        await interaction.response.send_message(f"Lệnh này chỉ có thể sử dụng trong kênh <#{AOV_CHANNEL_ID}>.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    account = account_manager.get_random_account()
+    if account:
+        embed = discord.Embed(
+            title="🎁 Tài Khoản Liên Quân Của Bạn 🎁",
+            description="Vui lòng đăng nhập và **không đổi mật khẩu** để người khác còn sử dụng.",
+            color=discord.Color.gold()
+        )
+        embed.add_field(name="🔐 Tài khoản", value=f"```{account['username']}```", inline=False)
+        embed.add_field(name="🔑 Mật khẩu", value=f"```{account['password']}```", inline=False)
+        embed.set_footer(text="Bot được cung cấp bởi GemLogin")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    else:
+        await interaction.followup.send("❌ Rất tiếc, kho tài khoản hiện đã hết hoặc đã xảy ra lỗi. Vui lòng thử lại sau.", ephemeral=True)
+
+# LỆNH ADMIN
 @tree.command(name="genkey", description="[Admin] Tạo một license key mới.")
 @app_commands.describe(user="Người dùng nhận key.", days="Số ngày hiệu lực.")
 async def genkey(interaction: discord.Interaction, user: discord.User, days: int):
@@ -224,7 +244,14 @@ async def delkey(interaction: discord.Interaction, key: str):
     if keygen.delete_key(key): await interaction.followup.send(f"✅ Key `{key}` đã được vô hiệu hóa.", ephemeral=True)
     else: await interaction.followup.send(f"❌ Không tìm thấy key `{key}`.", ephemeral=True)
 
-# Cooldown error handler
+# ==============================================================================
+# 4. ERROR HANDLERS
+# ==============================================================================
+@start1.error
+async def on_start1_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.CommandOnCooldown):
+        await interaction.response.send_message(f"Bạn cần phải chờ thêm **{error.retry_after:.1f} giây** nữa để có thể nhận tài khoản tiếp theo.", ephemeral=True)
+
 @start.error
 async def on_start_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.CommandOnCooldown):
