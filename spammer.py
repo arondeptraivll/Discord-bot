@@ -1,12 +1,14 @@
-# spammer.py (Phiên bản 5.0 - Prestige Logic)
+# spammer.py (Phiên bản 5.1 - Tích hợp Async)
 import requests
 import re
 import random
 import string
 import threading
 import time
+import asyncio
 from typing import Optional, Callable
-from keygen import validate_key as validate_license_from_file
+# Thay thế lời gọi hàm cũ bằng lời gọi hàm async mới
+from keygen import validate_key as async_validate_license_from_file
 
 class SpamManager:
     def __init__(self):
@@ -42,10 +44,13 @@ class SpamManager:
             return None
 
     def validate_license(self, key: str) -> dict:
-        return validate_license_from_file(key)
+        """
+        Wrapper đồng bộ để gọi hàm validate_key bất đồng bộ từ một luồng.
+        """
+        # Chạy coroutine trong một event loop mới
+        return asyncio.run(async_validate_license_from_file(key))
 
     def find_locket_uid(self, user_input: str) -> Optional[str]:
-        # ... (logic giữ nguyên, không cần thay đổi) ...
         user_input = user_input.strip()
         self.last_error_message = ""
         url_to_check = f"https://locket.cam/{user_input}" if not re.match(r'^https?://', user_input) else user_input
@@ -64,7 +69,6 @@ class SpamManager:
         except requests.RequestException as e:
             self.last_error_message = f"Lỗi kết nối mạng: {e}"; return None
 
-    # === NEW: Hàm hoàn tất profile người dùng ===
     def _finalize_user(self, id_token: str, custom_name: str, use_emojis: bool) -> bool:
         first_name = custom_name[:20] # Giới hạn 20 ký tự
         last_name = ' '.join(random.sample(self.emojis, 5)) if use_emojis else ""
@@ -83,7 +87,6 @@ class SpamManager:
         except requests.RequestException:
             return False
 
-    # === NEW: Hàm gửi yêu cầu kết bạn ===
     def _send_friend_request(self, id_token: str, target_uid: str) -> bool:
         payload = {"data": {"user_uid": target_uid}}
         headers = {'Content-Type': 'application/json', 'Authorization': f"Bearer {id_token}"}
