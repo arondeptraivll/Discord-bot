@@ -1,4 +1,4 @@
-# bot.py (Phiên bản Async triệt để)
+# bot.py (PHIÊN BẢN DEBUG - Thêm Log vào từng bước)
 import discord
 from discord import app_commands, ui
 import os
@@ -9,10 +9,17 @@ from typing import Optional
 from flask import Flask
 
 from spammer import SpamManager
-import keygen, aov_keygen, account_manager # Đảm bảo aov_keygen đã là bản async
+import keygen
+import aov_keygen
+import account_manager
 
-# ... (Mục 1, 2, 3 không thay đổi) ...
+print("--- [LAUNCH DEBUG] Bot đang khởi chạy... ---")
 
+# === TOÀN BỘ CÁC MỤC KHÁC GIỮ NGUYÊN ===
+# Mục 1, 2, 3 và phần lớn mục 4
+# ...
+# Tôi sẽ chỉ dán lại phần quan trọng cần sửa đổi là class AOVAccountView.
+# Bạn chỉ cần thay thế class AOVAccountView trong file bot.py hiện tại của bạn.
 # ==============================================================================
 # 1. CÀI ĐẶT
 # ==============================================================================
@@ -39,22 +46,26 @@ def format_time_left(expires_at_str):
         if m > 0: return f"{m} phút"
         return f"{int(delta.total_seconds())} giây"
     except: return "Không xác định"
-    
+
 # ==============================================================================
 # 3. UI VÀ LOGIC CHO CHỨC NĂNG SPAM LOCKET (/start)
-# (Để an toàn nhất, phần này cũng nên được chuyển sang async)
-# Tạm thời để nguyên, vì lỗi chủ yếu ở phần AOV
-# ...
+# ==============================================================================
+# Dùng phiên bản Async cuối cùng để đảm bảo không lỗi
 class KeyEntryModal(ui.Modal, title='🔑 Nhập License Key Locket'):
     key_input = ui.TextInput(label='License Key', placeholder='Dán key của bạn vào đây...')
     def __init__(self, original_message: discord.WebhookMessage): super().__init__(timeout=None); self.original_message = original_message
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
-        # TODO: Chuyển keygen.py sang async và await ở đây
-        result = spam_manager.validate_license(self.key_input.value)
-        if result.get("valid"): key_info = result['key_info']; embed = discord.Embed(title="✅ Key Hợp Lệ - Bảng Điều Khiển Spam", color=discord.Color.green()); await self.original_message.edit(embed=embed, view=SpamConfigView(self.key_input.value, key_info, self.original_message)); await interaction.followup.send("Kích hoạt thành công!", ephemeral=True)
-        else: errors = {"NOT_FOUND": "Key không tồn tại.", "EXPIRED": "Key đã hết hạn.", "SUSPENDED": "Key đã bị tạm ngưng."}; await interaction.followup.send(f"❌ Lỗi: {errors.get(result.get('code'), 'Lỗi không xác định.')}", ephemeral=True)
-
+        result = await keygen.validate_key(self.key_input.value)
+        if result.get("valid"):
+            key_info = result['key_info']
+            embed = discord.Embed(title="✅ Key Hợp Lệ - Bảng Điều Khiển Spam", color=discord.Color.green())
+            await self.original_message.edit(embed=embed, view=SpamConfigView(self.key_input.value, key_info, self.original_message))
+            await interaction.followup.send("Kích hoạt thành công!", ephemeral=True)
+        else:
+            errors = {"NOT_FOUND": "Key không tồn tại.", "EXPIRED": "Key đã hết hạn.", "SUSPENDED": "Key đã bị tạm ngưng."}
+            await interaction.followup.send(f"❌ Lỗi: {errors.get(result.get('code'), 'Lỗi không xác định.')}", ephemeral=True)
+# ... các class Spam khác giữ nguyên như bản async trước ...
 class SpamSetupModal(ui.Modal, title='🛠️ Cấu hình phiên Spam'):
     target_input = ui.TextInput(label='🎯 Locket Target (Username/Link)', placeholder='Ví dụ: mylocketuser hoặc link invite', required=True); name_input = ui.TextInput(label='👤 Custom Username (Tối đa 20 ký tự)', placeholder='Để trống để dùng tên mặc định', required=False, max_length=20); emoji_input = ui.TextInput(label='🎨 Sử dụng Emoji ngẫu nhiên? (y/n)', placeholder='y (có) hoặc n (không) - mặc định là có', required=False, max_length=1)
     def __init__(self, key: str, original_message: discord.WebhookMessage): super().__init__(timeout=None); self.key, self.original_message = key, original_message
@@ -108,81 +119,145 @@ class ActiveSpamView(ui.View):
         except discord.errors.NotFound: pass
 
 # ==============================================================================
-# 4. UI VÀ LOGIC MỚI CHO CHỨC NĂNG LIÊN QUÂN (/start1) - [ASYNC]
+# 4. UI VÀ LOGIC CHO CHỨC NĂNG LIÊN QUÂN (/start1) - PHIÊN BẢN DEBUG
 # ==============================================================================
+
 class AOVAccountView(ui.View):
     def __init__(self, key: str, initial_attempts: int):
-        super().__init__(timeout=7200)
+        super().__init__(timeout=7200) # Timeout 2 giờ
         self.key = key
         self.message = None
-        self.change_account_button.label = f"Đổi tài khoản (Còn lại {initial_attempts} lần)"
+        print(f"[DEBUG] AOVAccountView được tạo cho key '{self.key}' với {initial_attempts} lượt.")
+        
+        self.change_account_button.label = f"Đổi tài khoản ({initial_attempts} lần)"
         if initial_attempts <= 0:
             self.change_account_button.disabled = True
-            self.change_account_button.label = "Hết lượt đổi, vui lòng chờ"
+            self.change_account_button.label = "Hết lượt, vui lòng chờ"
     
     def set_message(self, message: discord.WebhookMessage):
         self.message = message
+        print(f"[DEBUG] Message đã được gán cho AOVAccountView của key '{self.key}'.")
 
-    @ui.button(label="Đổi tài khoản", style=discord.ButtonStyle.secondary, emoji="🔁", custom_id="change_aov_account")
+    @ui.button(label="Đổi tài khoản", style=discord.ButtonStyle.secondary, emoji="🔁", custom_id="change_account_debug")
     async def change_account_button(self, interaction: discord.Interaction, button: ui.Button):
-        await interaction.response.defer()
+        print(f"\n--- [DEBUG LOG START | Key: {self.key}] ---")
+        print(f"[1] Nút 'Đổi tài khoản' được bấm bởi: {interaction.user.name} ({interaction.user.id})")
+        
         try:
+            print("[2] Bắt đầu defer interaction...")
+            await interaction.response.defer()
+            print("[2.1] Defer interaction thành công.")
+
+            print("[3] Bắt đầu gọi aov_keygen.get_key_info...")
             key_info = await aov_keygen.get_key_info(self.key)
+            print(f"[3.1] get_key_info trả về: {key_info}")
+
             if not key_info:
-                button.disabled = True; button.label = "Key không hợp lệ"
+                print("[!] LỖI: Key không tìm thấy trong file JSON.")
+                button.disabled = True
+                button.label = "Key không hợp lệ"
                 await self.message.edit(content="❌ **Lỗi:** Key của bạn không còn hợp lệ hoặc đã bị xóa.", embed=None, view=self)
-                return self.stop()
+                self.stop()
+                print("--- [DEBUG LOG END] ---")
+                return
             
+            print("[4] Kiểm tra cooldown...")
             cooldown_ts_str = key_info.get('cooldown_until')
             if cooldown_ts_str:
+                print(f"[4.1] Tìm thấy cooldown_until: {cooldown_ts_str}")
                 cooldown_dt = datetime.datetime.fromisoformat(cooldown_ts_str.replace("Z", "+00:00"))
-                if cooldown_dt > datetime.datetime.now(datetime.timezone.utc):
+                now_dt = datetime.datetime.now(datetime.timezone.utc)
+                if cooldown_dt > now_dt:
+                    print("[!] LỖI: Key đang trong thời gian cooldown.")
                     time_left = format_time_left(cooldown_dt.isoformat())
-                    button.disabled = True; button.label = f"Chờ {time_left}"
+                    button.disabled = True
+                    button.label = f"Chờ {time_left}"
                     await self.message.edit(view=self)
-                    return await interaction.followup.send(f"⏳ Bạn đang trong thời gian chờ. Vui lòng thử lại sau **{time_left}**.", ephemeral=True)
+                    await interaction.followup.send(f"⏳ Bạn đang trong thời gian chờ. Vui lòng thử lại sau **{time_left}**.", ephemeral=True)
+                    print("--- [DEBUG LOG END] ---")
+                    return
                 else:
-                    key_info['change_attempts'] = 3
-                    key_info['cooldown_until'] = None
+                    print("[4.2] Cooldown đã hết hạn. Reset lại lượt đổi.")
                     await aov_keygen.update_key_state(self.key, {"change_attempts": 3, "cooldown_until": None})
+                    key_info['change_attempts'] = 3 # Cập nhật key_info local để dùng ngay
+                    print("[4.3] Reset cooldown thành công.")
+            else:
+                print("[4.1] Không có cooldown.")
 
+            print("[5] Kiểm tra số lượt đổi còn lại...")
             attempts_left = key_info.get('change_attempts', 0)
+            print(f"[5.1] Số lượt còn lại: {attempts_left}")
+
             if attempts_left <= 0:
+                print("[!] LỖI: Đã hết lượt đổi.")
                 button.disabled = True; button.label = "Hết lượt, vui lòng chờ"
                 await self.message.edit(view=self)
-                return await interaction.followup.send("❌ Bạn đã hết lượt đổi.", ephemeral=True)
+                await interaction.followup.send("❌ Bạn đã hết lượt đổi. Lượt đổi sẽ được làm mới sau thời gian chờ.", ephemeral=True)
+                print("--- [DEBUG LOG END] ---")
+                return
 
+            print("[6] Lấy tài khoản mới từ account_manager...")
             new_account = account_manager.get_random_account()
             if not new_account:
-                return await interaction.followup.send("❌ Kho tài khoản tạm thời đã hết.", ephemeral=True)
+                print("[!] LỖI: Kho tài khoản đã hết.")
+                await interaction.followup.send("❌ Kho tài khoản tạm thời đã hết. Vui lòng thử lại sau.", ephemeral=True)
+                print("--- [DEBUG LOG END] ---")
+                return
+            print(f"[6.1] Lấy thành công tài khoản: {new_account['username']}")
 
-            embed = self.message.embeds[0]; embed.title = "✅ Đổi Tài Khoản Thành Công"; embed.clear_fields()
+            print("[7] Cập nhật embed...")
+            embed = self.message.embeds[0]
+            embed.title = "✅ Đổi Tài Khoản Thành Công"
+            embed.clear_fields()
             embed.add_field(name="🔐 Tài khoản", value=f"```{new_account['username']}```", inline=False)
             embed.add_field(name="🔑 Mật khẩu", value=f"```{new_account['password']}```", inline=False)
-            
+            print("[7.1] Cập nhật embed thành công.")
+
+            print("[8] Tính toán và chuẩn bị payload để update key...")
             new_attempts = attempts_left - 1
             update_payload = {"change_attempts": new_attempts}
+            print(f"[8.1] Số lượt mới: {new_attempts}")
+
             if new_attempts == 0:
                 cooldown_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
                 update_payload["cooldown_until"] = cooldown_time.isoformat()
-                button.label = f"Hết lượt (Chờ 1 giờ)"; button.disabled = True
+                button.label = f"Hết lượt (Chờ 1 giờ)"
+                button.disabled = True
+                print(f"[8.2] Đã hết lượt, đặt cooldown đến: {update_payload['cooldown_until']}")
             else:
-                button.label = f"Đổi tài khoản (Còn lại {new_attempts} lần)"; button.disabled = False
-
+                button.label = f"Đổi tài khoản ({new_attempts} lần)"
+                button.disabled = False
+            
+            print(f"[9] Gọi aov_keygen.update_key_state với payload: {update_payload}")
             await aov_keygen.update_key_state(self.key, update_payload)
+            print("[9.1] update_key_state thành công.")
+            
+            print("[10] Bắt đầu edit message cuối cùng...")
             await self.message.edit(embed=embed, view=self)
-
+            print("[10.1] Edit message thành công! Hoàn tất.")
+            
         except Exception as e:
-            print(f"!!! [ERROR] Lỗi trong change_account_button: {e}")
-            await interaction.followup.send("🙁 Lỗi, vui lòng thử lại sau.", ephemeral=True)
+            print(f"!!!!!!!!!!!!!!! LỖI BẤT NGỜ !!!!!!!!!!!!!!!")
+            print(f"Lỗi trong `change_account_button`: {type(e).__name__} - {e}")
+            import traceback
+            traceback.print_exc()
+            print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            try:
+                await interaction.followup.send("🙁 Đã có lỗi bất ngờ xảy ra ở phía máy chủ. Vui lòng liên hệ Admin.", ephemeral=True)
+            except discord.errors.HTTPException:
+                pass
+        
+        print("--- [DEBUG LOG END] ---")
 
     async def on_timeout(self):
         try:
+            print(f"[DEBUG] View cho key {self.key} đã timeout.")
             self.change_account_button.disabled = True
             await self.message.edit(view=self)
         except (discord.errors.NotFound, AttributeError):
             pass
 
+# Các class và hàm khác giữ nguyên y hệt như phiên bản cuối
 class AOVKeyEntryModal(ui.Modal, title='🔑 Nhập Key Liên Quân'):
     key_input = ui.TextInput(label='License Key', placeholder='Dán key AOV của bạn vào đây...')
     def __init__(self, original_message: discord.WebhookMessage): super().__init__(timeout=None); self.original_message = original_message
@@ -217,7 +292,6 @@ class AOVKeyEntryModal(ui.Modal, title='🔑 Nhập Key Liên Quân'):
         else:
             errors = {"NOT_FOUND": "Key không tồn tại.", "EXPIRED": "Key đã hết hạn.", "SUSPENDED": "Key đã bị vô hiệu hóa."}
             await interaction.followup.send(f"❌ Lỗi: {errors.get(result.get('code'), 'Lỗi.')}", ephemeral=True)
-
 class AOVInitialView(ui.View):
     def __init__(self, original_message: Optional[discord.WebhookMessage]=None):
         super().__init__(timeout=300); self.original_message = original_message
@@ -231,9 +305,6 @@ class AOVInitialView(ui.View):
                 embed = self.original_message.embeds[0]; embed.description = "Phiên đã hết hạn. Dùng `/start1` để bắt đầu lại."
                 embed.color = discord.Color.dark_grey(); await self.original_message.edit(embed=embed, view=None)
         except: pass
-
-# ... (Mục 5 và 6 không thay đổi) ...
-
 # ==============================================================================
 # 5. LỆNH & EVENTS
 # ==============================================================================
@@ -242,8 +313,9 @@ async def on_ready():
     # Sử dụng file account_manager đã có cache
     account_manager.load_accounts_into_cache()
     await tree.sync()
-    print(f'--- [READY] Bot đã đăng nhập: {client.user} ---')
+    print(f'--- [READY DEBUG] Bot đã đăng nhập: {client.user} ---')
 
+# Các hàm lệnh giữ nguyên ...
 @tree.command(name="start", description="Bắt đầu một phiên spam Locket (yêu cầu key).")
 @app_commands.checks.cooldown(1, 10, key=lambda i: i.user.id)
 async def start(interaction: discord.Interaction):
@@ -267,19 +339,20 @@ async def admin_command_wrapper(interaction: discord.Interaction, admin_logic):
     if str(interaction.user.id) != ADMIN_USER_ID: return await handle_error_response(interaction, "❌ Bạn không có quyền.")
     await interaction.response.defer(ephemeral=True)
     await admin_logic(interaction)
-
+#... Lệnh Admin... (Giữ nguyên)
 @tree.command(name="genkey", description="[Admin] Tạo một key Locket mới.")
 @app_commands.describe(user="Người dùng nhận key.", days="Số ngày hiệu lực.")
 async def genkey(interaction: discord.Interaction, user: discord.User, days: int):
-    # async def logic(inter): key_info = await keygen.add_key(days, user.id, inter.user.id); await inter.followup.send(f"✅ Đã tạo key Locket! **Người dùng:** {user.mention} **Hiệu lực:** {days} ngày **Key:** `{key_info['key']}`", ephemeral=True)
-    async def logic(inter): key_info = keygen.add_key(days, user.id, inter.user.id); await inter.followup.send(f"✅ Đã tạo key Locket! **Người dùng:** {user.mention} **Hiệu lực:** {days} ngày **Key:** `{key_info['key']}`", ephemeral=True)
+    async def logic(inter):
+        key_info = await keygen.add_key(days, user.id, inter.user.id)
+        await inter.followup.send(f"✅ Đã tạo key Locket: `{key_info['key']}`", ephemeral=True)
     await admin_command_wrapper(interaction, logic)
     
 @tree.command(name="listkeys", description="[Admin] Xem danh sách các key Locket đang hoạt động.")
 async def listkeys(interaction: discord.Interaction):
-    # async def logic(inter): keys_data = await keygen.load_keys() ...
     async def logic(inter):
-        keys = {k: v for k, v in keygen.load_keys().items() if v.get('is_active') and datetime.datetime.fromisoformat(v['expires_at'].replace("Z", "+00:00")) > datetime.datetime.now(datetime.timezone.utc)}
+        keys_data = await keygen.load_keys()
+        keys = {k: v for k, v in keys_data.items() if v.get('is_active') and datetime.datetime.fromisoformat(v['expires_at'].replace("Z", "+00:00")) > datetime.datetime.now(datetime.timezone.utc)}
         if not keys: return await inter.followup.send("Không có key Locket nào hoạt động.", ephemeral=True)
         desc = "```" + "Key (Locket)      | User ID             | Thời Gian Còn Lại\n" + "------------------|---------------------|--------------------\n"
         for k, v in list(keys.items())[:20]: desc += f"{k:<17} | {v.get('user_id', 'N/A'):<19} | {format_time_left(v['expires_at'])}\n"
@@ -290,16 +363,19 @@ async def listkeys(interaction: discord.Interaction):
 @tree.command(name="delkey", description="[Admin] Vô hiệu hóa một key Locket.")
 @app_commands.describe(key="Key Locket cần xóa.")
 async def delkey(interaction: discord.Interaction, key: str):
-    # async def logic(inter): res = await keygen.delete_key(key)...
     async def logic(inter):
-        if keygen.delete_key(key): await inter.followup.send(f"✅ Key Locket `{key}` đã được vô hiệu hóa.", ephemeral=True)
-        else: await inter.followup.send(f"❌ Không tìm thấy key Locket `{key}`.", ephemeral=True)
+        if await keygen.delete_key(key):
+            await inter.followup.send(f"✅ Key Locket `{key}` đã được vô hiệu hóa.", ephemeral=True)
+        else:
+            await inter.followup.send(f"❌ Không tìm thấy key Locket `{key}`.", ephemeral=True)
     await admin_command_wrapper(interaction, logic)
 
 @tree.command(name="keygen1", description="[Admin] Tạo một key Liên Quân mới.")
 @app_commands.describe(user="Người dùng nhận key.", days="Số ngày hiệu lực.")
 async def genkey1(interaction: discord.Interaction, user: discord.User, days: int = 1):
-    async def logic(inter): key_info = await aov_keygen.add_key(days, user.id, inter.user.id); await inter.followup.send(f"✅ **Đã tạo key LQ!**\n**Người dùng:** {user.mention}\n**Hiệu lực:** {days} ngày\n**Key:** `{key_info['key']}`", ephemeral=True)
+    async def logic(inter):
+        key_info = await aov_keygen.add_key(days, user.id, inter.user.id)
+        await inter.followup.send(f"✅ Đã tạo key LQ: `{key_info['key']}`", ephemeral=True)
     await admin_command_wrapper(interaction, logic)
     
 @tree.command(name="listkeys1", description="[Admin] Xem danh sách các key Liên Quân chưa sử dụng.")
@@ -318,10 +394,11 @@ async def listkeys1(interaction: discord.Interaction):
 @app_commands.describe(key="Key Liên Quân cần xóa.")
 async def delkey1(interaction: discord.Interaction, key: str):
     async def logic(inter):
-        if await aov_keygen.delete_key(key): await inter.followup.send(f"✅ Key LQ `{key}` đã bị vô hiệu hóa.", ephemeral=True)
-        else: await inter.followup.send(f"❌ Không tìm thấy key LQ `{key}`.", ephemeral=True)
+        if await aov_keygen.delete_key(key):
+            await inter.followup.send(f"✅ Key LQ `{key}` đã bị vô hiệu hóa.", ephemeral=True)
+        else:
+            await inter.followup.send(f"❌ Không tìm thấy key LQ `{key}`.", ephemeral=True)
     await admin_command_wrapper(interaction, logic)
-
 
 # ==============================================================================
 # 6. ERROR HANDLER HOÀN CHỈNH
