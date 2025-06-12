@@ -1,4 +1,4 @@
---- START OF FILE bot.py ---
+
 
 # bot.py (Phiên bản Cuối Cùng - Gửi tin nhắn công khai có thể chỉnh sửa)
 import discord
