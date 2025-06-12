@@ -1,47 +1,46 @@
-# main.py (Phiên bản Sửa Lỗi và Ổn Định)
-import os
-from threading import Thread
-from flask import Flask
+# account_manager.py
+import re
+import random
+from typing import Optional, Dict
 
-# Import app và client từ bot.py
-# Đảm bảo DISCORD_TOKEN cũng được import để kiểm tra
-from bot import app, client, DISCORD_TOKEN
+ACCOUNT_FILE = 'account_aov.txt'
 
-def run_bot():
-    """Hàm chạy discord bot một cách an toàn."""
-    if DISCORD_TOKEN:
-        print("--- [THREAD] Bắt đầu luồng Discord Bot... ---")
-        client.run(DISCORD_TOKEN)
-    else:
-        print("--- [CRITICAL] Không tìm thấy DISCORD_TOKEN, luồng bot không chạy. ---")
+def parse_account_line(line: str) -> Optional[Dict[str, str]]:
+    """Phân tích một dòng trong file tài khoản thành username và password."""
+    # Sử dụng regex để tìm chính xác tài khoản và mật khẩu
+    match = re.search(r"Tài khoản:\s*(.*?)\s*🔑 Mật khẩu:\s*(.*)", line)
+    if match:
+        username = match.group(1).strip()
+        password = match.group(2).strip()
+        return {"username": username, "password": password}
+    return None
 
-def run_web_server():
-    """Hàm chạy Flask web server để giữ cho Render luôn 'sống'."""
-    # Render sẽ tự động gán cổng qua biến môi trường PORT
-    port = int(os.environ.get('PORT', 8080))
-    print(f"--- [THREAD] Bắt đầu luồng Web Server trên cổng {port}... ---")
-    app.run(host='0.0.0.0', port=port)
-
-# Main execution
-if __name__ == '__main__':
-    print("--- [LAUNCH] Khởi chạy ứng dụng đa luồng... ---")
-    
-    # Tạo một luồng cho web server (để trả lời health check của Render)
-    web_thread = Thread(target=run_web_server)
-    web_thread.daemon = True  # Tự động tắt khi chương trình chính kết thúc
-    
-    # Tạo luồng chính cho Discord bot
-    bot_thread = Thread(target=run_bot)
-    bot_thread.daemon = True
-
-    # Khởi chạy cả hai luồng
-    web_thread.start()
-    bot_thread.start()
-
-    # Giữ cho chương trình chính chạy mãi mãi
-    # Nếu không có dòng này, chương trình sẽ kết thúc và cả 2 luồng cũng sẽ chết
+def get_random_account() -> Optional[Dict[str, str]]:
+    """
+    Đọc file account_aov.txt, phân tích cú pháp các dòng,
+    và trả về một tài khoản ngẫu nhiên.
+    """
     try:
-        web_thread.join()
-        bot_thread.join()
-    except KeyboardInterrupt:
-        print("--- [SHUTDOWN] Đang tắt ứng dụng... ---")
+        with open(ACCOUNT_FILE, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Lọc ra những dòng hợp lệ và phân tích chúng
+        accounts = []
+        for line in lines:
+            if line.strip(): # Bỏ qua các dòng trống
+                parsed = parse_account_line(line)
+                if parsed:
+                    accounts.append(parsed)
+
+        if not accounts:
+            return None # Không có tài khoản nào hợp lệ trong file
+        
+        # Chọn ngẫu nhiên một tài khoản từ danh sách
+        return random.choice(accounts)
+
+    except FileNotFoundError:
+        print(f"!!! [ERROR] Không tìm thấy file dữ liệu tài khoản: {ACCOUNT_FILE}")
+        return None
+    except Exception as e:
+        print(f"!!! [ERROR] Lỗi khi đọc file tài khoản: {e}")
+        return None
