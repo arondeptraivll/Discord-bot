@@ -1,17 +1,14 @@
-# bot.py (Phiên bản Bền Bỉ - Đã sửa lỗi logic phản hồi)
+# bot.py (Phiên bản Tạo Mới View - Đảm bảo hoạt động)
 import discord
 from discord import app_commands, ui
 import os
 import datetime
-import time
 import asyncio
 from typing import Optional
 from flask import Flask
 
 from spammer import SpamManager
-import keygen
-import aov_keygen
-import account_manager
+import keygen, aov_keygen, account_manager
 
 print("--- [LAUNCH] Bot đang khởi chạy... ---")
 
@@ -20,8 +17,7 @@ print("--- [LAUNCH] Bot đang khởi chạy... ---")
 # ==============================================================================
 app = Flask('')
 @app.route('/')
-def home():
-    return "Bot is alive and running!"
+def home(): return "Bot is alive and running!"
 DISCORD_TOKEN = os.environ.get('DISCORD_TOKEN'); ADMIN_USER_ID = os.environ.get('ADMIN_USER_ID')
 SPAM_CHANNEL_ID = int(os.environ.get('SPAM_CHANNEL_ID', 1381799563488399452)); AOV_CHANNEL_ID = 1382203422094266390
 if not DISCORD_TOKEN or not ADMIN_USER_ID: print("!!! [CRITICAL] Thiếu DISCORD_TOKEN hoặc ADMIN_USER_ID.")
@@ -43,8 +39,9 @@ def format_time_left(expires_at_str):
     except: return "Không xác định"
 
 # ==============================================================================
-# 3. UI VÀ LOGIC CHO CHỨC NĂNG SPAM LOCKET (/start)
+# 3. UI SPAM LOCKET
 # ==============================================================================
+# ... (Phần này không thay đổi, giữ nguyên)
 class KeyEntryModal(ui.Modal, title='🔑 Nhập License Key Locket'):
     key_input = ui.TextInput(label='License Key', placeholder='Dán key của bạn vào đây...')
     def __init__(self, original_message: discord.WebhookMessage): super().__init__(timeout=None); self.original_message = original_message
@@ -112,80 +109,95 @@ class ActiveSpamView(ui.View):
         except discord.errors.NotFound: pass
 
 # ==============================================================================
-# 4. UI VÀ LOGIC CHO CHỨC NĂNG LIÊN QUÂN (/start1) - PHIÊN BẢN BỀN BỈ
+# 4. UI AOV - PHIÊN BẢN TẠO MỚI VIEW
 # ==============================================================================
 class AOVAccountView(ui.View):
+    # Dùng 1 factory method để tạo View với custom_id và trạng thái nút chính xác
+    @staticmethod
+    def create(key: str, attempts_left: int, cooldown_until: Optional[str] = None):
+        view = AOVAccountView()
+        button = view.children[0]
+        button.custom_id = f"persistent_aov_change:{key}"
+        
+        # Kiểm tra cooldown trước
+        if cooldown_until:
+            cooldown_dt = datetime.datetime.fromisoformat(cooldown_until.replace("Z", "+00:00"))
+            if cooldown_dt > datetime.datetime.now(datetime.timezone.utc):
+                time_left = format_time_left(cooldown_until)
+                button.label = f"Hết lượt (Chờ {time_left})"
+                button.disabled = True
+                return view
+        
+        # Set label và trạng thái dựa trên lượt đổi
+        button.label = f"Đổi tài khoản ({attempts_left} lần)"
+        if attempts_left <= 0:
+            button.disabled = True
+            button.label = "Hết lượt, vui lòng chờ"
+            
+        return view
+    
     def __init__(self):
         super().__init__(timeout=None)
 
-    @ui.button(label="Đổi tài khoản", style=discord.ButtonStyle.secondary, emoji="🔁", custom_id="persistent_aov_change:placeholder")
+    @ui.button(label="Placeholder", style=discord.ButtonStyle.secondary, emoji="🔁", custom_id="persistent_aov_change:placeholder")
     async def change_account_button(self, interaction: discord.Interaction, button: ui.Button):
-        # *** BƯỚC 1: Defer công khai và lấy key ***
-        await interaction.response.defer() # Dùng defer công khai, không ephemeral
+        # defer() phải là hành động đầu tiên
+        await interaction.response.defer()
         try:
             key = button.custom_id.split(':')[1]
         except IndexError:
-            # Dùng edit_original_response thay vì followup để tránh lỗi
             return await interaction.edit_original_response(content="Lỗi: `custom_id` của nút không hợp lệ.", view=None, embed=None)
 
         try:
-            # *** BƯỚC 2: Kiểm tra tất cả điều kiện lỗi trước ***
             key_info = await aov_keygen.get_key_info(key)
             if not key_info:
-                return await interaction.edit_original_response(content="❌ Lỗi: Key của bạn không còn hợp lệ.", view=None, embed=None)
-            
-            # Kiểm tra cooldown
-            if cooldown_ts_str := key_info.get('cooldown_until'):
-                cooldown_dt = datetime.datetime.fromisoformat(cooldown_ts_str.replace("Z", "+00:00"))
-                if cooldown_dt > datetime.datetime.now(datetime.timezone.utc):
-                    time_left = format_time_left(cooldown_ts_str)
-                    # Gửi tin nhắn lỗi riêng và kết thúc
-                    return await interaction.followup.send(f"⏳ Bạn đang trong thời gian chờ. Vui lòng thử lại sau **{time_left}**.", ephemeral=True)
-                else: # Reset nếu cooldown đã hết
-                    await aov_keygen.update_key_state(key, {"change_attempts": 3, "cooldown_until": None})
-                    key_info['change_attempts'] = 3
-            
-            # Kiểm tra lượt đổi
-            if (attempts_left := key_info.get('change_attempts', 0)) <= 0:
+                return await interaction.edit_original_response(content="❌ Lỗi: Key không còn hợp lệ.", view=None, embed=None)
+
+            if (cooldown := key_info.get('cooldown_until')) and \
+               datetime.datetime.fromisoformat(cooldown.replace("Z", "+00:00")) > datetime.datetime.now(datetime.timezone.utc):
+                time_left = format_time_left(cooldown)
+                return await interaction.followup.send(f"⏳ Bạn đang trong thời gian chờ. Thử lại sau **{time_left}**.", ephemeral=True)
+            elif key_info.get('cooldown_until'):
+                # Nếu có cooldown nhưng đã hết hạn, thì reset lại
+                await aov_keygen.update_key_state(key, {"change_attempts": 3, "cooldown_until": None})
+                key_info = await aov_keygen.get_key_info(key) # Lấy lại thông tin mới nhất
+
+            if key_info.get('change_attempts', 0) <= 0:
                 return await interaction.followup.send("❌ Bạn đã hết lượt đổi.", ephemeral=True)
 
-            # *** BƯỚC 3: Thực hiện logic chính nếu không có lỗi ***
             new_account = account_manager.get_random_account()
             if not new_account:
-                return await interaction.followup.send("❌ Kho tài khoản tạm thời đã hết.", ephemeral=True)
-            
-            # Chuẩn bị embed và view mới để cập nhật
+                return await interaction.followup.send("❌ Kho tài khoản tạm hết.", ephemeral=True)
+                
+            # Cập nhật thông tin trong file
+            new_attempts = key_info.get('change_attempts', 0) - 1
+            payload = {"change_attempts": new_attempts}
+            new_cooldown = None
+            if new_attempts <= 0:
+                new_cooldown = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)).isoformat()
+                payload["cooldown_until"] = new_cooldown
+            await aov_keygen.update_key_state(key, payload)
+
+            # Cập nhật embed
             embed = interaction.message.embeds[0]
             embed.title = "✅ Đổi Tài Khoản Thành Công"
             embed.clear_fields()
             embed.add_field(name="🔐 Tài khoản", value=f"```{new_account['username']}```", inline=False)
             embed.add_field(name="🔑 Mật khẩu", value=f"```{new_account['password']}```", inline=False)
-
-            new_attempts = attempts_left - 1
-            update_payload = {"change_attempts": new_attempts}
             
-            # Chuẩn bị view mới
-            new_view = AOVAccountView()
-            new_button = new_view.children[0]
-            new_button.custom_id = f"persistent_aov_change:{key}" # Giữ nguyên custom_id
-            new_button.label = f"Đổi tài khoản ({new_attempts} lần)"
-
-            if new_attempts <= 0:
-                cooldown_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
-                update_payload["cooldown_until"] = cooldown_time.isoformat()
-                new_button.label = f"Hết lượt (Chờ 1 giờ)"
-                new_button.disabled = True
+            # Tạo view mới với trạng thái mới
+            new_view = AOVAccountView.create(key=key, attempts_left=new_attempts, cooldown_until=new_cooldown)
             
-            # *** BƯỚC 4: Thực hiện cập nhật vào file và Discord ***
-            await aov_keygen.update_key_state(key, update_payload)
-            # Cập nhật tin nhắn GỐC với embed và view MỚI
-            await interaction.edit_original_response(content="✅ Đã đổi tài khoản!", embed=embed, view=new_view)
-
+            # Gửi toàn bộ cập nhật trong một lệnh duy nhất
+            await interaction.edit_original_response(content=None, embed=embed, view=new_view)
+            
         except Exception as e:
-            print(f"!!! LỖI TRONG `change_account_button`: {e}")
+            print(f"!!! Lỗi trong `change_account_button`: {e}")
             import traceback; traceback.print_exc()
-            # Gửi tin nhắn lỗi nếu có sự cố
-            await interaction.followup.send("🙁 Lỗi máy chủ, không thể đổi tài khoản. Vui lòng thử lại sau.", ephemeral=True)
+            if not interaction.response.is_done():
+                await interaction.response.send_message("Lỗi máy chủ", ephemeral=True)
+            else:
+                await interaction.followup.send("Lỗi máy chủ", ephemeral=True)
 
 
 class AOVKeyEntryModal(ui.Modal, title='🔑 Nhập Key Liên Quân'):
@@ -193,68 +205,57 @@ class AOVKeyEntryModal(ui.Modal, title='🔑 Nhập Key Liên Quân'):
     def __init__(self, original_message: discord.WebhookMessage):
         super().__init__(timeout=None)
         self.original_message = original_message
-
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
         key_value = self.key_input.value
-        
         result = await aov_keygen.validate_key(key_value)
-        if result.get("valid"):
-            key_info = result['key_info']
-            if cooldown_ts_str := key_info.get('cooldown_until'):
-                cooldown_dt = datetime.datetime.fromisoformat(cooldown_ts_str.replace("Z", "+00:00"))
-                if cooldown_dt > datetime.datetime.now(datetime.timezone.utc):
-                    return await interaction.followup.send(f"❌ Key đang chờ. Thử lại sau {format_time_left(cooldown_ts_str)}.", ephemeral=True)
-            
-            account = account_manager.get_random_account()
-            if account:
-                embed = discord.Embed(title="✅ Lấy Tài Khoản Thành Công", description=f"Cảm ơn bạn đã sử dụng key `{key_value}`.", color=discord.Color.green())
-                embed.add_field(name="🔐 Tài khoản", value=f"```{account['username']}```", inline=False)
-                embed.add_field(name="🔑 Mật khẩu", value=f"```{account['password']}```", inline=False)
-                embed.set_footer(text="Nếu tài khoản bị khóa, hãy nhấn nút 'Đổi tài khoản' bên dưới.")
-                
-                # Tạo view và gán custom_id động cho nút
-                view = AOVAccountView()
-                # Truy cập button đầu tiên và set custom_id
-                button = view.children[0]
-                button.custom_id = f"persistent_aov_change:{key_value}"
-                # Set label ban đầu
-                button.label = f"Đổi tài khoản ({key_info.get('change_attempts', 3)} lần)"
-                
-                await self.original_message.edit(content=None, embed=embed, view=view)
-                await interaction.followup.send("Lấy tài khoản thành công!", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Hết tài khoản trong kho.", ephemeral=True)
-        else:
+        if not result.get("valid"):
             errors = {"NOT_FOUND": "Key không tồn tại.", "EXPIRED": "Key đã hết hạn.", "SUSPENDED": "Key đã bị vô hiệu hóa."}
-            await interaction.followup.send(f"❌ Lỗi: {errors.get(result.get('code'), 'Lỗi không xác định.')}", ephemeral=True)
-            
+            return await interaction.followup.send(f"❌ Lỗi: {errors.get(result.get('code'), 'Lỗi không xác định.')}", ephemeral=True)
+        
+        key_info = result['key_info']
+        account = account_manager.get_random_account()
+        if not account:
+            return await interaction.followup.send("❌ Hết tài khoản trong kho.", ephemeral=True)
+
+        embed = discord.Embed(title="✅ Lấy Tài Khoản Thành Công", description=f"Key `{key_value}`.", color=discord.Color.green())
+        embed.add_field(name="🔐 Tài khoản", value=f"```{account['username']}```", inline=False)
+        embed.add_field(name="🔑 Mật khẩu", value=f"```{account['password']}```", inline=False)
+        embed.set_footer(text="Nếu tài khoản bị khóa, nhấn 'Đổi tài khoản'.")
+        
+        view = AOVAccountView.create(
+            key=key_value, 
+            attempts_left=key_info.get('change_attempts', 3), 
+            cooldown_until=key_info.get('cooldown_until')
+        )
+        
+        await self.original_message.edit(content=None, embed=embed, view=view)
+        await interaction.followup.send("Lấy tài khoản thành công!", ephemeral=True)
+
 class AOVInitialView(ui.View):
     def __init__(self, original_message: Optional[discord.WebhookMessage]=None):
         super().__init__(timeout=300); self.original_message = original_message
     @ui.button(label='Nhập Key Liên Quân', style=discord.ButtonStyle.success, emoji='🔑')
     async def enter_aov_key(self, interaction: discord.Interaction, button: ui.Button):
-        if not self.original_message: return await interaction.response.send_message("Lỗi: Phiên đã hết hạn.", ephemeral=True)
         await interaction.response.send_modal(AOVKeyEntryModal(original_message=self.original_message))
     async def on_timeout(self):
         try:
             if self.original_message and self.original_message.embeds:
-                embed = self.original_message.embeds[0]; embed.description = "Phiên đã hết hạn. Dùng `/start1` để bắt đầu lại."
-                embed.color = discord.Color.dark_grey(); await self.original_message.edit(embed=embed, view=None)
+                embed = self.original_message.embeds[0]; embed.description = "Phiên đã hết hạn."
+                await self.original_message.edit(embed=embed, view=None)
         except: pass
-        
+
 # ==============================================================================
 # 5. LỆNH & EVENTS
 # ==============================================================================
 @client.event
 async def on_ready():
     account_manager.load_accounts_into_cache()
-    # Đăng ký View bền bỉ khi bot khởi động
     client.add_view(AOVAccountView())
     await tree.sync()
     print(f'--- [READY] Bot đã đăng nhập: {client.user} ---')
-
-# --- Tất cả các lệnh và handler lỗi còn lại giữ nguyên ---
+    
+# ... Phần còn lại của file giữ nguyên như bản trước ...
 @tree.command(name="start", description="Bắt đầu một phiên spam Locket (yêu cầu key).")
 @app_commands.checks.cooldown(1, 10, key=lambda i: i.user.id)
 async def start(interaction: discord.Interaction):
