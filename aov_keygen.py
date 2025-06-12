@@ -1,41 +1,43 @@
-# aov_keygen.py
+# aov_keygen.py (Phiên bản Async với aiofiles)
 import json
 import uuid
 import datetime
-from threading import Lock
-from typing import Dict, Any
+import asyncio
+import aiofiles
 
-# Sử dụng file và prefix riêng biệt
 KEY_FILE = 'aov_keys.json' 
 KEY_PREFIX = 'AOV'
-_lock = Lock()
+# Sử dụng asyncio.Lock thay vì threading.Lock
+_lock = asyncio.Lock()
 
-def load_keys() -> dict:
-    """Tải và sắp xếp dữ liệu keys từ aov_keys.json."""
-    with _lock:
+async def load_keys() -> dict:
+    """Tải và sắp xếp dữ liệu keys một cách bất đồng bộ."""
+    async with _lock:
         try:
-            with open(KEY_FILE, 'r') as f:
-                data = json.load(f)
+            async with aiofiles.open(KEY_FILE, 'r') as f:
+                content = await f.read()
+                data = json.loads(content)
+                # Sắp xếp vẫn là tác vụ đồng bộ nhưng rất nhanh
                 sorted_items = sorted(data.items(), key=lambda item: item[1]['expires_at'], reverse=True)
                 return dict(sorted_items)
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
 
-def save_keys(keys_data: dict):
-    """Lưu dữ liệu keys vào file JSON một cách an toàn."""
-    with _lock:
-        with open(KEY_FILE, 'w') as f:
-            json.dump(keys_data, f, indent=4)
+async def save_keys(keys_data: dict):
+    """Lưu dữ liệu keys vào file JSON một cách bất đồng bộ."""
+    async with _lock:
+        async with aiofiles.open(KEY_FILE, 'w') as f:
+            await f.write(json.dumps(keys_data, indent=4))
 
 def generate_key_string() -> str:
-    """Tạo một chuỗi key độc nhất."""
+    """Tạo một chuỗi key độc nhất (hàm này không cần async)."""
     part1 = uuid.uuid4().hex[:4].upper()
     part2 = uuid.uuid4().hex[:4].upper()
     return f"{KEY_PREFIX}-{part1}-{part2}"
 
-def add_key(duration_days: int, created_for_user_id: int, creator_id: int) -> dict:
-    """Tạo một key mới và lưu vào file."""
-    keys_data = load_keys()
+async def add_key(duration_days: int, created_for_user_id: int, creator_id: int) -> dict:
+    """Tạo một key mới và lưu vào file một cách bất đồng bộ."""
+    keys_data = await load_keys()
     
     new_key_str = generate_key_string()
     while new_key_str in keys_data:
@@ -51,49 +53,46 @@ def add_key(duration_days: int, created_for_user_id: int, creator_id: int) -> di
         "is_active": True,
         "created_by": str(creator_id),
         "user_id": str(created_for_user_id),
-        # === NEW: Thêm trạng thái đổi tài khoản ===
         "change_attempts": 3,
         "cooldown_until": None
     }
     
     keys_data[new_key_str] = key_info
-    save_keys(keys_data)
+    await save_keys(keys_data)
     
     return {"key": new_key_str, "expires_at": expiration_date}
 
-def get_key_info(key: str) -> Dict[str, Any]:
-    """Lấy toàn bộ thông tin của một key."""
-    return load_keys().get(key, {})
+async def get_key_info(key: str) -> dict:
+    """Lấy thông tin của một key một cách bất đồng bộ."""
+    keys = await load_keys()
+    return keys.get(key, {})
 
-def update_key_state(key: str, updates: Dict[str, Any]) -> bool:
-    """Cập nhật các trường dữ liệu cho một key cụ thể."""
-    with _lock:
-        keys_data = load_keys()
+async def update_key_state(key: str, updates: dict) -> bool:
+    """Cập nhật các trường dữ liệu cho một key một cách bất đồng bộ."""
+    async with _lock:
+        keys_data = await load_keys()
         if key in keys_data:
             keys_data[key].update(updates)
-            save_keys(keys_data)
+            await save_keys(keys_data)
             return True
         return False
         
-def validate_key(key: str) -> dict:
-    """Kiểm tra một key từ file keys.json."""
-    keys_data = load_keys()
+async def validate_key(key: str) -> dict:
+    """Kiểm tra một key một cách bất đồng bộ."""
+    keys_data = await load_keys()
     key_info = keys_data.get(key)
 
     if not key_info:
         return {"valid": False, "code": "NOT_FOUND"}
-
     if not key_info.get("is_active", False):
         return {"valid": False, "code": "SUSPENDED"}
 
-    # Không vô hiệu hóa key hết hạn ở đây nữa, vì nó có thể còn hiệu lực đổi tài khoản
-    expiry_dt = datetime.datetime.fromisoformat(key_info["expires_at"])
+    expiry_dt = datetime.datetime.fromisoformat(key_info["expires_at"].replace("Z", "+00:00"))
     if expiry_dt < datetime.datetime.now(datetime.timezone.utc):
-        # Chỉ trả về hết hạn, không tự động lưu is_active = False nữa
         return {"valid": False, "code": "EXPIRED"}
 
     return {"valid": True, "code": "VALID", "key_info": key_info}
 
-def delete_key(key_to_delete: str) -> bool:
-    """Vô hiệu hóa một key bằng cách đặt is_active = False."""
-    return update_key_state(key_to_delete, {"is_active": False})
+async def delete_key(key_to_delete: str) -> bool:
+    """Vô hiệu hóa một key một cách bất đồng bộ."""
+    return await update_key_state(key_to_delete, {"is_active": False})
