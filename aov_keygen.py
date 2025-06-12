@@ -3,6 +3,7 @@ import json
 import uuid
 import datetime
 from threading import Lock
+from typing import Dict, Any
 
 # Sử dụng file và prefix riêng biệt
 KEY_FILE = 'aov_keys.json' 
@@ -50,6 +51,9 @@ def add_key(duration_days: int, created_for_user_id: int, creator_id: int) -> di
         "is_active": True,
         "created_by": str(creator_id),
         "user_id": str(created_for_user_id),
+        # === NEW: Thêm trạng thái đổi tài khoản ===
+        "change_attempts": 3,
+        "cooldown_until": None
     }
     
     keys_data[new_key_str] = key_info
@@ -57,6 +61,20 @@ def add_key(duration_days: int, created_for_user_id: int, creator_id: int) -> di
     
     return {"key": new_key_str, "expires_at": expiration_date}
 
+def get_key_info(key: str) -> Dict[str, Any]:
+    """Lấy toàn bộ thông tin của một key."""
+    return load_keys().get(key, {})
+
+def update_key_state(key: str, updates: Dict[str, Any]) -> bool:
+    """Cập nhật các trường dữ liệu cho một key cụ thể."""
+    with _lock:
+        keys_data = load_keys()
+        if key in keys_data:
+            keys_data[key].update(updates)
+            save_keys(keys_data)
+            return True
+        return False
+        
 def validate_key(key: str) -> dict:
     """Kiểm tra một key từ file keys.json."""
     keys_data = load_keys()
@@ -68,19 +86,14 @@ def validate_key(key: str) -> dict:
     if not key_info.get("is_active", False):
         return {"valid": False, "code": "SUSPENDED"}
 
+    # Không vô hiệu hóa key hết hạn ở đây nữa, vì nó có thể còn hiệu lực đổi tài khoản
     expiry_dt = datetime.datetime.fromisoformat(key_info["expires_at"])
     if expiry_dt < datetime.datetime.now(datetime.timezone.utc):
-        key_info['is_active'] = False
-        save_keys(keys_data)
+        # Chỉ trả về hết hạn, không tự động lưu is_active = False nữa
         return {"valid": False, "code": "EXPIRED"}
 
     return {"valid": True, "code": "VALID", "key_info": key_info}
 
 def delete_key(key_to_delete: str) -> bool:
     """Vô hiệu hóa một key bằng cách đặt is_active = False."""
-    keys_data = load_keys()
-    if key_to_delete in keys_data:
-        keys_data[key_to_delete]['is_active'] = False
-        save_keys(keys_data)
-        return True
-    return False
+    return update_key_state(key_to_delete, {"is_active": False})
