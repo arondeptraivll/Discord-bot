@@ -1,3 +1,5 @@
+--- START OF FILE account_manager.py ---
+
 # account_manager.py
 import re
 import random
@@ -44,21 +46,27 @@ def load_accounts_into_cache():
         print(f"!!! [ERROR] Lỗi khi nạp cache tài khoản: {e}")
         _accounts_cache = [] # Đảm bảo cache là một list rỗng
 
-def get_random_account() -> Optional[Dict[str, str]]:
+def get_random_account(exclude_username: Optional[str] = None) -> Optional[Dict[str, str]]:
     """
-    Lấy một tài khoản ngẫu nhiên từ cache trong bộ nhớ.
-    Đây là hàm non-blocking, cực nhanh.
+    Lấy một tài khoản ngẫu nhiên từ cache.
+    Có thể loại trừ một username cụ thể để không bị trùng lặp.
     """
     if not _accounts_cache:
         # Nếu cache rỗng (có thể do lỗi khi khởi động), thử nạp lại một lần nữa
-        # Lưu ý: Đây là hành động đồng bộ (blocking), chỉ nên xảy ra trong trường hợp khẩn cấp
         print("!!! [WARNING] Cache tài khoản đang rỗng. Thử nạp lại đồng bộ...")
         load_accounts_into_cache()
         if not _accounts_cache:
              return None # Vẫn rỗng thì trả về None
     
+    # Lọc ra danh sách các tài khoản hợp lệ (không phải là tài khoản cần loại trừ)
+    available_accounts = [acc for acc in _accounts_cache if acc['username'] != exclude_username]
+
+    if not available_accounts:
+        # Xảy ra nếu tất cả tài khoản đều bị loại trừ hoặc kho chỉ có 1 tài khoản đó
+        return None
+    
     try:
-        return random.choice(_accounts_cache)
+        return random.choice(available_accounts)
     except IndexError:
-        # Xảy ra nếu _accounts_cache là list rỗng
+        # Trường hợp dự phòng nếu list rỗng (dù đã kiểm tra)
         return None
