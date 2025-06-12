@@ -1,6 +1,5 @@
 Flask
 discord.py
 requests
-gunicorn
 aiofiles
-uvicorn
+waitress
