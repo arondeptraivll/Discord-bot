@@ -1,13 +1,13 @@
 # account_manager.py
 import re
 import random
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 ACCOUNT_FILE = 'account_aov.txt'
+_accounts_cache: List[Dict[str, str]] = [] # Biến cache toàn cục
 
-def parse_account_line(line: str) -> Optional[Dict[str, str]]:
+def _parse_account_line(line: str) -> Optional[Dict[str, str]]:
     """Phân tích một dòng trong file tài khoản thành username và password."""
-    # Sử dụng regex để tìm chính xác tài khoản và mật khẩu
     match = re.search(r"Tài khoản:\s*(.*?)\s*🔑 Mật khẩu:\s*(.*)", line)
     if match:
         username = match.group(1).strip()
@@ -15,32 +15,50 @@ def parse_account_line(line: str) -> Optional[Dict[str, str]]:
         return {"username": username, "password": password}
     return None
 
-def get_random_account() -> Optional[Dict[str, str]]:
+def load_accounts_into_cache():
     """
-    Đọc file account_aov.txt, phân tích cú pháp các dòng,
-    và trả về một tài khoản ngẫu nhiên.
+    Đọc file và nạp tài khoản vào cache. 
+    Hàm này được thiết kế để chạy một lần khi bot khởi động.
     """
+    global _accounts_cache
+    if _accounts_cache: # Nếu đã có cache thì không chạy lại
+        print("--- [CACHE] Cache tài khoản đã tồn tại. Bỏ qua việc nạp lại. ---")
+        return
+
     try:
         with open(ACCOUNT_FILE, 'r', encoding='utf-8') as f:
             lines = f.readlines()
         
-        # Lọc ra những dòng hợp lệ và phân tích chúng
-        accounts = []
+        parsed_accounts = []
         for line in lines:
-            if line.strip(): # Bỏ qua các dòng trống
-                parsed = parse_account_line(line)
-                if parsed:
-                    accounts.append(parsed)
-
-        if not accounts:
-            return None # Không có tài khoản nào hợp lệ trong file
+            if parsed := _parse_account_line(line):
+                parsed_accounts.append(parsed)
         
-        # Chọn ngẫu nhiên một tài khoản từ danh sách
-        return random.choice(accounts)
+        _accounts_cache = parsed_accounts
+        print(f"--- [CACHE] Đã nạp thành công {_accounts_cache.__len__()} tài khoản AOV vào cache. ---")
 
     except FileNotFoundError:
         print(f"!!! [ERROR] Không tìm thấy file dữ liệu tài khoản: {ACCOUNT_FILE}")
-        return None
+        _accounts_cache = [] # Đảm bảo cache là một list rỗng
     except Exception as e:
-        print(f"!!! [ERROR] Lỗi khi đọc file tài khoản: {e}")
+        print(f"!!! [ERROR] Lỗi khi nạp cache tài khoản: {e}")
+        _accounts_cache = [] # Đảm bảo cache là một list rỗng
+
+def get_random_account() -> Optional[Dict[str, str]]:
+    """
+    Lấy một tài khoản ngẫu nhiên từ cache trong bộ nhớ.
+    Đây là hàm non-blocking, cực nhanh.
+    """
+    if not _accounts_cache:
+        # Nếu cache rỗng (có thể do lỗi khi khởi động), thử nạp lại một lần nữa
+        # Lưu ý: Đây là hành động đồng bộ (blocking), chỉ nên xảy ra trong trường hợp khẩn cấp
+        print("!!! [WARNING] Cache tài khoản đang rỗng. Thử nạp lại đồng bộ...")
+        load_accounts_into_cache()
+        if not _accounts_cache:
+             return None # Vẫn rỗng thì trả về None
+    
+    try:
+        return random.choice(_accounts_cache)
+    except IndexError:
+        # Xảy ra nếu _accounts_cache là list rỗng
         return None
