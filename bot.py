@@ -1,4 +1,4 @@
-# bot.py (Phiên bản Cuối Cùng - Chống Mọi Lỗi và Có Tính Năng Đổi Acc)
+# bot.py (Phiên bản Cuối Cùng - Chống Mọi Lỗi và Có Tính Năng Đổi Acc - Fix Interaction Failed)
 import discord
 from discord import app_commands, ui
 import os
@@ -119,67 +119,87 @@ class AOVAccountView(ui.View):
     def set_message(self, message: discord.WebhookMessage):
         self.message = message
 
-    async def update_button_state(self, button: ui.Button, key_info: dict):
-        """Cập nhật label và trạng thái của button dựa trên thông tin key."""
-        attempts = key_info.get('change_attempts', 0)
-        cooldown_ts_str = key_info.get('cooldown_until')
-
-        if cooldown_ts_str:
-            cooldown_dt = datetime.datetime.fromisoformat(cooldown_ts_str.replace("Z", "+00:00"))
-            now_dt = datetime.datetime.now(datetime.timezone.utc)
-            if cooldown_dt > now_dt:
-                time_left = format_time_left(cooldown_dt.isoformat())
-                button.label = f"Hết lượt (Chờ {time_left})"
-                button.disabled = True
-                return
-            else: 
-                aov_keygen.update_key_state(self.key, {"change_attempts": 3, "cooldown_until": None})
-                button.label = "Đổi tài khoản (Còn lại 3 lần)"
-                button.disabled = False
-        else:
-             button.label = f"Đổi tài khoản (Còn lại {attempts} lần)"
-             button.disabled = attempts <= 0
-        
+    # <<<--- HÀM ĐÃ SỬA LỖI TẠI ĐÂY ---
     @ui.button(label="Đổi tài khoản", style=discord.ButtonStyle.secondary, emoji="🔁", custom_id="change_aov_account")
     async def change_account_button(self, interaction: discord.Interaction, button: ui.Button):
+        # Bước 1: Defer ngay lập tức để Discord biết bot đang xử lý
         await interaction.response.defer()
-        key_info = aov_keygen.get_key_info(self.key)
-        if not key_info:
-            await interaction.followup.send("❌ Lỗi: Key không còn tồn tại.", ephemeral=True); self.stop(); return
-            
-        await self.update_button_state(button, key_info)
-        key_info = aov_keygen.get_key_info(self.key)
 
-        if button.disabled:
-             await interaction.followup.send(f"❌ Bạn đang trong thời gian chờ hoặc đã hết lượt đổi. Vui lòng thử lại sau.", ephemeral=True)
-             try: await self.message.edit(view=self)
-             except discord.errors.NotFound: pass
-             return
-             
-        attempts_left = key_info.get('change_attempts', 0)
-        if attempts_left > 0:
+        try:
+            # Bước 2: Lấy thông tin key và kiểm tra toàn bộ các điều kiện lỗi trước
+            key_info = aov_keygen.get_key_info(self.key)
+
+            # Trường hợp 1: Key không còn tồn tại
+            if not key_info:
+                button.disabled = True
+                button.label = "Key không hợp lệ"
+                await self.message.edit(content="❌ **Lỗi:** Key của bạn không còn hợp lệ hoặc đã bị xóa.", embed=None, view=self)
+                self.stop()
+                return
+
+            # Trường hợp 2: Kiểm tra cooldown
+            cooldown_ts_str = key_info.get('cooldown_until')
+            if cooldown_ts_str:
+                cooldown_dt = datetime.datetime.fromisoformat(cooldown_ts_str.replace("Z", "+00:00"))
+                if cooldown_dt > datetime.datetime.now(datetime.timezone.utc):
+                    time_left = format_time_left(cooldown_dt.isoformat())
+                    button.disabled = True
+                    button.label = f"Chờ {time_left}"
+                    await self.message.edit(view=self) # Chỉ cần cập nhật button
+                    await interaction.followup.send(f"⏳ Bạn đang trong thời gian chờ. Vui lòng thử lại sau **{time_left}**.", ephemeral=True)
+                    return
+                else:
+                    # Nếu đã hết cooldown, reset lại cho người dùng
+                    key_info['change_attempts'] = 3
+                    key_info['cooldown_until'] = None
+                    aov_keygen.update_key_state(self.key, {"change_attempts": 3, "cooldown_until": None})
+
+            # Trường hợp 3: Hết lượt đổi
+            attempts_left = key_info.get('change_attempts', 0)
+            if attempts_left <= 0:
+                button.disabled = True
+                button.label = "Hết lượt, vui lòng chờ"
+                await self.message.edit(view=self) # Cập nhật button
+                await interaction.followup.send("❌ Bạn đã hết lượt đổi. Lượt đổi sẽ được làm mới sau thời gian chờ.", ephemeral=True)
+                return
+
+            # Bước 3: Nếu mọi thứ đều ổn, thực hiện logic chính
             new_account = account_manager.get_random_account()
             if not new_account:
-                await interaction.followup.send("❌ Kho tài khoản tạm thời đã hết. Vui lòng thử lại sau.", ephemeral=True); return
-
-            embed = self.message.embeds[0]; embed.title="✅ Đổi Tài Khoản Thành Công"; embed.clear_fields()
+                await interaction.followup.send("❌ Kho tài khoản tạm thời đã hết. Vui lòng thử lại sau.", ephemeral=True)
+                return
+            
+            # Cập nhật embed
+            embed = self.message.embeds[0]
+            embed.title = "✅ Đổi Tài Khoản Thành Công"
+            embed.clear_fields()
             embed.add_field(name="🔐 Tài khoản", value=f"```{new_account['username']}```", inline=False)
             embed.add_field(name="🔑 Mật khẩu", value=f"```{new_account['password']}```", inline=False)
-            
+
+            # Trừ lượt và cập nhật trạng thái key
             new_attempts = attempts_left - 1
             update_payload = {"change_attempts": new_attempts}
             if new_attempts == 0:
                 cooldown_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
                 update_payload["cooldown_until"] = cooldown_time.isoformat()
+                button.label = f"Hết lượt (Chờ 1 giờ)"
+                button.disabled = True
+            else:
+                button.label = f"Đổi tài khoản (Còn lại {new_attempts} lần)"
+                button.disabled = False
             
             aov_keygen.update_key_state(self.key, update_payload)
-            updated_key_info = aov_keygen.get_key_info(self.key)
-            await self.update_button_state(button, updated_key_info)
             
-            try: await self.message.edit(embed=embed, view=self)
-            except discord.errors.NotFound:
-                await interaction.followup.send("Lỗi: Tin nhắn gốc đã bị xóa.", ephemeral=True); self.stop()
-        
+            # Bước 4: Chỉnh sửa tin nhắn gốc với thông tin mới
+            await self.message.edit(embed=embed, view=self)
+
+        except Exception as e:
+            print(f"!!! [ERROR] Lỗi nghiêm trọng trong change_account_button: {e}")
+            try:
+                await interaction.followup.send("🙁 Đã có lỗi bất ngờ xảy ra, vui lòng thử lại sau hoặc liên hệ Admin.", ephemeral=True)
+            except discord.errors.HTTPException:
+                pass
+
     async def on_timeout(self):
         try:
             self.change_account_button.disabled = True; await self.message.edit(view=self)
@@ -283,7 +303,7 @@ async def delkey(interaction: discord.Interaction, key: str):
     await admin_command_wrapper(interaction, logic)
 
 @tree.command(name="keygen1", description="[Admin] Tạo một key Liên Quân mới.")
-@app_commands.describe(user="Người dùng nhận key.", days="Số ngày hiệu lực (key sẽ bị hủy sau khi dùng).")
+@app_commands.describe(user="Người dùng nhận key.", days="Số ngày hiệu lực.")
 async def genkey1(interaction: discord.Interaction, user: discord.User, days: int = 1):
     async def logic(inter): key_info = aov_keygen.add_key(days, user.id, inter.user.id); await inter.followup.send(f"✅ **Đã tạo key Liên Quân!**\n\n**Người dùng:** {user.mention}\n**Hiệu lực:** {days} ngày\n**Key:** `{key_info['key']}`", ephemeral=True)
     await admin_command_wrapper(interaction, logic)
