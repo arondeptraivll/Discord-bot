@@ -1,4 +1,4 @@
-# bot.py (Final Fix for Persistent View Error)
+# bot.py (Final Fix for Ephemeral Message & Persistent View Interaction)
 import discord
 from discord import app_commands, ui
 import os
@@ -127,22 +127,17 @@ class ActiveSpamView(ui.View):
         except discord.errors.NotFound: pass
 
 # ==============================================================================
-# 4. UI VÀ LOGIC MỚI CHO CHỨC NĂNG LIÊN QUÂN (/start1) - Sửa lỗi
+# 4. UI VÀ LOGIC MỚI CHO CHỨC NĂNG LIÊN QUÂN (/start1) - Sửa lỗi cuối cùng
 # ==============================================================================
 
 class AOVAccountDashboardView(ui.View):
-    # Sửa lỗi persistent view: Khởi tạo với timeout=None và thêm custom_id cho các button
     def __init__(self):
         super().__init__(timeout=None) 
-        self.current_username = ""
         
-    def set_current_account(self, username: str):
-        self.current_username = username
-
-    # FIX: Thêm custom_id để View có thể persistent
     @ui.button(label='Sao chép Tên TK', style=discord.ButtonStyle.secondary, emoji=AOV_UI_CONFIG.EMOJI_COPY, custom_id="persistent_aov_copy_user")
     async def copy_username_callback(self, interaction: discord.Interaction, button: ui.Button):
         username = "Không tìm thấy"
+        # Dùng interaction.message vì chúng ta chỉ đang đọc, không chỉnh sửa
         embed = interaction.message.embeds[0]
         for field in embed.fields:
             if "Tài Khoản" in field.name:
@@ -150,7 +145,6 @@ class AOVAccountDashboardView(ui.View):
                 break
         await interaction.response.send_message(f"```{username}```", ephemeral=True)
 
-    # FIX: Thêm custom_id để View có thể persistent
     @ui.button(label='Sao chép Mật Khẩu', style=discord.ButtonStyle.secondary, emoji=AOV_UI_CONFIG.EMOJI_COPY, custom_id="persistent_aov_copy_pass")
     async def copy_password_callback(self, interaction: discord.Interaction, button: ui.Button):
         password = "Không tìm thấy"
@@ -161,20 +155,19 @@ class AOVAccountDashboardView(ui.View):
                 break
         await interaction.response.send_message(f"```{password}```", ephemeral=True)
     
-    # FIX: Thêm custom_id để View có thể persistent
     @ui.button(label='Đổi Tài Khoản', style=discord.ButtonStyle.success, emoji=AOV_UI_CONFIG.EMOJI_CHANGE, row=1, custom_id="persistent_aov_change_acc")
     async def change_account(self, interaction: discord.Interaction, button: ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        
+        # Không cần defer() nữa vì edit_message sẽ làm việc đó
         cooldown_status = cooldown_manager.check_and_use_change(interaction.user.id)
         if not cooldown_status["allowed"]:
             retry_seconds = cooldown_status.get('retry_after', 3600)
             minutes, seconds = divmod(int(retry_seconds), 60)
-            return await interaction.followup.send(
+            # Dùng response.send_message vì interaction chưa được phản hồi
+            return await interaction.response.send_message(
                 f"❌ Bạn đã hết lượt đổi. Vui lòng thử lại sau **{minutes} phút {seconds} giây**.", ephemeral=True
             )
         
-        # Để lấy username cũ, ta cần đọc lại từ tin nhắn gốc, vì View được tái tạo
+        # Đọc username cũ từ tin nhắn gốc
         old_username = "Không xác định"
         try:
             embed = interaction.message.embeds[0]
@@ -183,40 +176,41 @@ class AOVAccountDashboardView(ui.View):
                     old_username = field.value.strip("`")
                     break
         except (IndexError, AttributeError):
-            pass # Bỏ qua nếu không lấy được, vẫn sẽ đổi acc mới
+            pass 
 
         new_account = account_manager.get_random_account(exclude_username=old_username)
         
         if not new_account:
-            return await interaction.followup.send("Rất tiếc, kho đã hết tài khoản để đổi.", ephemeral=True)
+            return await interaction.response.send_message("Rất tiếc, kho đã hết tài khoản để đổi.", ephemeral=True)
         
-        # Cập nhật tin nhắn gốc với tài khoản mới
+        # Tạo embed mới và cập nhật nó
         embed = interaction.message.embeds[0]
         embed.title = "✅ Tài khoản đã được làm mới"
+        embed.description = f"Đây là tài khoản mới của bạn, {interaction.user.display_name}." # Cập nhật description cho rõ ràng
         embed.fields[0].value = f"```{new_account['username']}```"
         embed.fields[1].value = f"```{new_account['password']}```"
 
-        # Vì View này là persistent, nó không cần được truyền lại.
-        # discord.py sẽ tự động đính kèm nó vào tin nhắn dựa trên custom_id.
-        await interaction.message.edit(embed=embed)
-        
-        await interaction.followup.send("Đã đổi tài khoản thành công!", ephemeral=True)
+        # **FIX:** Sử dụng interaction.response.edit_message() để cập nhật tin nhắn
+        # Đây là cách đúng để phản hồi một tương tác component
+        await interaction.response.edit_message(embed=embed)
 
 
 class AOVKeyEntryModal(ui.Modal, title='Xác thực License Key'):
     key_input = ui.TextInput(label='License Key', placeholder='Dán key của bạn vào đây...')
-    def __init__(self, original_interaction: discord.Interaction): # Sửa: truyền interaction gốc
+    def __init__(self, original_interaction: discord.Interaction):
         super().__init__(timeout=None)
         self.original_interaction = original_interaction
         
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer() # Chỉ cần defer là đủ, không cần ephemeral ở đây
+        # Defer tương tác của modal
+        await interaction.response.defer()
         key_value = self.key_input.value
         
         processing_embed = discord.Embed(
             description=f"{AOV_UI_CONFIG.EMOJI_GEAR} Đang xử lý yêu cầu của bạn...", 
             color=AOV_UI_CONFIG.COLOR_WAITING
         )
+        # Chỉnh sửa tin nhắn gốc từ lệnh /start1
         await self.original_interaction.edit_original_response(embed=processing_embed, view=None)
         
         result = aov_keygen.validate_key(key_value)
@@ -240,7 +234,6 @@ class AOVKeyEntryModal(ui.Modal, title='Xác thực License Key'):
             
         aov_keygen.delete_key(key_value)
         
-        # View này sẽ được đính kèm với tin nhắn kết quả.
         dashboard_view = AOVAccountDashboardView()
         
         success_embed = discord.Embed(
@@ -279,7 +272,6 @@ class AOVInitialView(ui.View):
 # ==============================================================================
 @client.event
 async def on_ready():
-    # Thêm AOVAccountDashboardView vào bot để nó hoạt động vĩnh viễn
     client.add_view(AOVAccountDashboardView()) 
     await tree.sync()
     account_manager.load_accounts_into_cache()
@@ -304,7 +296,6 @@ async def start1(interaction: discord.Interaction):
     )
     embed.set_footer(text="An toàn - Nhanh chóng - Tiện lợi")
 
-    # Lưu trữ interaction để có thể chỉnh sửa tin nhắn từ Modal
     await interaction.followup.send(embed=embed, ephemeral=True, view=AOVInitialView(interaction))
 
 # ... các lệnh còn lại giữ nguyên
@@ -381,6 +372,9 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
     elif isinstance(error, app_commands.CheckFailure):
         await handle_error_response(interaction, "❌ Bạn không thể thực hiện lệnh này tại đây.")
     elif isinstance(error, app_commands.CommandInvokeError):
+        # Đặc biệt bắt lỗi Unknown Message để đưa ra thông báo thân thiện hơn
+        if isinstance(error.original, discord.errors.NotFound) and error.original.code == 10008:
+             return await handle_error_response(interaction, "🙁 Rất tiếc, tương tác này đã hết hạn. Vui lòng thử lại lệnh.")
         print(f"Lỗi CommandInvokeError trong lệnh '{interaction.command.name}': {error.original}")
         await handle_error_response(interaction, "🙁 Đã có lỗi xảy ra. Vui lòng thử lại sau ít phút.")
     else:
