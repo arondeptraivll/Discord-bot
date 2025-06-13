@@ -1,4 +1,4 @@
-# bot.py (Final Fix for Unknown Message, No Images)
+# bot.py (Final Fix for Persistent View Error)
 import discord
 from discord import app_commands, ui
 import os
@@ -127,20 +127,21 @@ class ActiveSpamView(ui.View):
         except discord.errors.NotFound: pass
 
 # ==============================================================================
-# 4. UI VÀ LOGIC MỚI CHO CHỨC NĂNG LIÊN QUÂN (/start1) - Final Fix
+# 4. UI VÀ LOGIC MỚI CHO CHỨC NĂNG LIÊN QUÂN (/start1) - Sửa lỗi
 # ==============================================================================
 
 class AOVAccountDashboardView(ui.View):
+    # Sửa lỗi persistent view: Khởi tạo với timeout=None và thêm custom_id cho các button
     def __init__(self):
-        super().__init__(timeout=None) # Persistent View
-        self.current_username = "" # Dùng để loại trừ
+        super().__init__(timeout=None) 
+        self.current_username = ""
         
     def set_current_account(self, username: str):
         self.current_username = username
 
-    @ui.button(label='Sao chép Tên TK', style=discord.ButtonStyle.secondary, emoji=AOV_UI_CONFIG.EMOJI_COPY)
+    # FIX: Thêm custom_id để View có thể persistent
+    @ui.button(label='Sao chép Tên TK', style=discord.ButtonStyle.secondary, emoji=AOV_UI_CONFIG.EMOJI_COPY, custom_id="persistent_aov_copy_user")
     async def copy_username_callback(self, interaction: discord.Interaction, button: ui.Button):
-        # Lấy username từ field của tin nhắn gốc mà nút được đính kèm
         username = "Không tìm thấy"
         embed = interaction.message.embeds[0]
         for field in embed.fields:
@@ -149,9 +150,9 @@ class AOVAccountDashboardView(ui.View):
                 break
         await interaction.response.send_message(f"```{username}```", ephemeral=True)
 
-    @ui.button(label='Sao chép Mật Khẩu', style=discord.ButtonStyle.secondary, emoji=AOV_UI_CONFIG.EMOJI_COPY)
+    # FIX: Thêm custom_id để View có thể persistent
+    @ui.button(label='Sao chép Mật Khẩu', style=discord.ButtonStyle.secondary, emoji=AOV_UI_CONFIG.EMOJI_COPY, custom_id="persistent_aov_copy_pass")
     async def copy_password_callback(self, interaction: discord.Interaction, button: ui.Button):
-        # Lấy password từ field của tin nhắn gốc mà nút được đính kèm
         password = "Không tìm thấy"
         embed = interaction.message.embeds[0]
         for field in embed.fields:
@@ -160,7 +161,8 @@ class AOVAccountDashboardView(ui.View):
                 break
         await interaction.response.send_message(f"```{password}```", ephemeral=True)
     
-    @ui.button(label='Đổi Tài Khoản', style=discord.ButtonStyle.success, emoji=AOV_UI_CONFIG.EMOJI_CHANGE, row=1)
+    # FIX: Thêm custom_id để View có thể persistent
+    @ui.button(label='Đổi Tài Khoản', style=discord.ButtonStyle.success, emoji=AOV_UI_CONFIG.EMOJI_CHANGE, row=1, custom_id="persistent_aov_change_acc")
     async def change_account(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer(ephemeral=True)
         
@@ -172,46 +174,50 @@ class AOVAccountDashboardView(ui.View):
                 f"❌ Bạn đã hết lượt đổi. Vui lòng thử lại sau **{minutes} phút {seconds} giây**.", ephemeral=True
             )
         
-        # Lấy username cũ từ View, được gán lúc ban đầu
-        old_username = self.current_username
+        # Để lấy username cũ, ta cần đọc lại từ tin nhắn gốc, vì View được tái tạo
+        old_username = "Không xác định"
+        try:
+            embed = interaction.message.embeds[0]
+            for field in embed.fields:
+                if "Tài Khoản" in field.name:
+                    old_username = field.value.strip("`")
+                    break
+        except (IndexError, AttributeError):
+            pass # Bỏ qua nếu không lấy được, vẫn sẽ đổi acc mới
+
         new_account = account_manager.get_random_account(exclude_username=old_username)
         
         if not new_account:
             return await interaction.followup.send("Rất tiếc, kho đã hết tài khoản để đổi.", ephemeral=True)
+        
+        # Cập nhật tin nhắn gốc với tài khoản mới
+        embed = interaction.message.embeds[0]
+        embed.title = "✅ Tài khoản đã được làm mới"
+        embed.fields[0].value = f"```{new_account['username']}```"
+        embed.fields[1].value = f"```{new_account['password']}```"
 
-        # Cập nhật lại username hiện tại trong View
-        self.current_username = new_account["username"]
+        # Vì View này là persistent, nó không cần được truyền lại.
+        # discord.py sẽ tự động đính kèm nó vào tin nhắn dựa trên custom_id.
+        await interaction.message.edit(embed=embed)
         
-        # **Giải pháp:** Gửi một tin nhắn mới hoàn toàn
-        embed = discord.Embed(
-            title="✅ Tài khoản đã được làm mới",
-            description=f"Dưới đây là thông tin tài khoản mới của bạn, **{interaction.user.display_name}**.",
-            color=AOV_UI_CONFIG.COLOR_SUCCESS
-        )
-        embed.set_author(name="GemLogin | Hệ thống Cung cấp Tài khoản", icon_url=client.user.display_avatar.url)
-        embed.add_field(name=f"{AOV_UI_CONFIG.EMOJI_USER} Tài Khoản", value=f"```{new_account['username']}```", inline=True)
-        embed.add_field(name=f"{AOV_UI_CONFIG.EMOJI_PASSWORD} Mật Khẩu", value=f"```{new_account['password']}```", inline=True)
-        embed.set_footer(text=f"Tin nhắn này là tạm thời.")
-        
-        # Gửi tin nhắn mới này cho người dùng. Cách này luôn hoạt động.
-        await interaction.followup.send(embed=embed, ephemeral=True, view=self)
+        await interaction.followup.send("Đã đổi tài khoản thành công!", ephemeral=True)
+
 
 class AOVKeyEntryModal(ui.Modal, title='Xác thực License Key'):
     key_input = ui.TextInput(label='License Key', placeholder='Dán key của bạn vào đây...')
-    def __init__(self, original_message: discord.WebhookMessage): 
+    def __init__(self, original_interaction: discord.Interaction): # Sửa: truyền interaction gốc
         super().__init__(timeout=None)
-        self.original_message = original_message
+        self.original_interaction = original_interaction
         
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer() # Chỉ cần defer là đủ, không cần ephemeral ở đây
         key_value = self.key_input.value
         
         processing_embed = discord.Embed(
             description=f"{AOV_UI_CONFIG.EMOJI_GEAR} Đang xử lý yêu cầu của bạn...", 
             color=AOV_UI_CONFIG.COLOR_WAITING
         )
-        # Sửa tin nhắn tạm thời của lệnh /start1
-        await interaction.edit_original_response(embed=processing_embed, view=None)
+        await self.original_interaction.edit_original_response(embed=processing_embed, view=None)
         
         result = aov_keygen.validate_key(key_value)
         if not result.get("valid"):
@@ -221,7 +227,7 @@ class AOVKeyEntryModal(ui.Modal, title='Xác thực License Key'):
                 description=f"**Lý do:** {errors.get(result.get('code'), 'Lỗi không xác định.')}", 
                 color=AOV_UI_CONFIG.COLOR_ERROR
             )
-            return await interaction.edit_original_response(embed=error_embed)
+            return await self.original_interaction.edit_original_response(embed=error_embed)
 
         account = account_manager.get_random_account()
         if not account:
@@ -230,14 +236,13 @@ class AOVKeyEntryModal(ui.Modal, title='Xác thực License Key'):
                 description="Key hợp lệ nhưng kho tài khoản đã hết. Vui lòng liên hệ Admin.", 
                 color=AOV_UI_CONFIG.COLOR_ERROR
             )
-            return await interaction.edit_original_response(embed=error_embed)
+            return await self.original_interaction.edit_original_response(embed=error_embed)
             
         aov_keygen.delete_key(key_value)
         
-        # View này sẽ được đính kèm với tin nhắn kết quả
+        # View này sẽ được đính kèm với tin nhắn kết quả.
         dashboard_view = AOVAccountDashboardView()
-        dashboard_view.set_current_account(account["username"]) # Gán username ban đầu
-
+        
         success_embed = discord.Embed(
             title="✅ Kích hoạt thành công!",
             description=f"Key `{key_value}` đã được kích hoạt cho **{interaction.user.display_name}**.",
@@ -248,18 +253,16 @@ class AOVKeyEntryModal(ui.Modal, title='Xác thực License Key'):
         success_embed.add_field(name=f"{AOV_UI_CONFIG.EMOJI_PASSWORD} Mật Khẩu", value=f"```{account['password']}```", inline=True)
         success_embed.set_footer(text="Sử dụng các nút bên dưới để quản lý tài khoản.")
 
-        await interaction.edit_original_response(embed=success_embed, view=dashboard_view)
+        await self.original_interaction.edit_original_response(embed=success_embed, view=dashboard_view)
         
 class AOVInitialView(ui.View):
-    def __init__(self, original_message: Optional[discord.Interaction]=None): 
+    def __init__(self, original_interaction: discord.Interaction): 
         super().__init__(timeout=300)
-        # Sửa: lưu trữ interaction thay vì message
-        self.original_interaction = original_message
+        self.original_interaction = original_interaction
         
     @ui.button(label='Kích Hoạt License Key', style=discord.ButtonStyle.primary, emoji=AOV_UI_CONFIG.EMOJI_KEY)
     async def enter_aov_key(self, interaction: discord.Interaction, button: ui.Button):
-        # Sử dụng interaction.followup.send thay vì message.edit
-        await interaction.response.send_modal(AOVKeyEntryModal(interaction))
+        await interaction.response.send_modal(AOVKeyEntryModal(self.original_interaction))
         
     async def on_timeout(self):
         try:
@@ -276,6 +279,7 @@ class AOVInitialView(ui.View):
 # ==============================================================================
 @client.event
 async def on_ready():
+    # Thêm AOVAccountDashboardView vào bot để nó hoạt động vĩnh viễn
     client.add_view(AOVAccountDashboardView()) 
     await tree.sync()
     account_manager.load_accounts_into_cache()
@@ -300,7 +304,7 @@ async def start1(interaction: discord.Interaction):
     )
     embed.set_footer(text="An toàn - Nhanh chóng - Tiện lợi")
 
-    # Sửa: lưu trữ interaction để dùng sau này
+    # Lưu trữ interaction để có thể chỉnh sửa tin nhắn từ Modal
     await interaction.followup.send(embed=embed, ephemeral=True, view=AOVInitialView(interaction))
 
 # ... các lệnh còn lại giữ nguyên
